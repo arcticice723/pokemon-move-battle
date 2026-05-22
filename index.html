@@ -29,20 +29,17 @@
     }
 
     h1 {
-      margin-bottom: 10px;
+      margin-bottom: 5px;
+    }
+
+    .players {
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 20px;
     }
 
     .hidden {
       display: none;
-    }
-
-    .room-menu {
-      margin-bottom: 25px;
-    }
-
-    .room-menu input {
-      width: 250px;
-      margin: 5px;
     }
 
     button {
@@ -103,12 +100,6 @@
       margin-bottom: 15px;
     }
 
-    .players {
-      margin-top: 15px;
-      font-size: 20px;
-      font-weight: bold;
-    }
-
     .moves-list {
       margin-top: 20px;
       background: #f1f1f1;
@@ -138,7 +129,19 @@
 
     <h1>Pokémon Move Battle</h1>
 
-    <div id="roomMenu" class="room-menu">
+    <div class="players">
+
+      <div id="player1Text">
+        Player 1: Waiting...
+      </div>
+
+      <div id="player2Text">
+        Player 2: Waiting...
+      </div>
+
+    </div>
+
+    <div id="roomMenu">
 
       <input
         type="text"
@@ -168,41 +171,42 @@
 
     </div>
 
-    <div id="gameUI" class="hidden">
+    <div id="gameUI">
 
       <div id="roomCodeText"></div>
 
-      <div class="players">
-
-      <div id="player1Text">
-        Player 1: Waiting...
-      </div>
-
-      <div id="player2Text">
-        Player 2: Waiting...
-      </div>
-
-      </div>
-
-      <div class="round-display" id="roundDisplay">
+      <div
+        class="round-display"
+        id="roundDisplay"
+      >
         Round 1: All Moves
       </div>
 
-      <div class="type-display" id="typeDisplay"></div>
+      <div
+        class="type-display"
+        id="typeDisplay"
+      ></div>
 
       <h2 id="turnText">
-        Waiting For First Move
+        Waiting For Players
       </h2>
 
-      <div class="timer" id="timer">
+      <div
+        class="timer hidden"
+        id="timer"
+      >
         60
       </div>
 
-      <div class="move-count" id="moveCount">
+      <div
+        class="move-count"
+        id="moveCount"
+      >
         0 / 937 Moves Used
       </div>
 
       <input
+        class="hidden"
         type="text"
         id="moveInput"
         placeholder="Enter a Pokémon move"
@@ -211,14 +215,23 @@
 
       <br />
 
-      <button onclick="submitMove()">
+      <button
+        class="hidden"
+        onclick="submitMove()"
+        id="submitButton"
+      >
         Submit Move
       </button>
 
-      <div class="message" id="message">
-      </div>
+      <div
+        class="message"
+        id="message"
+      ></div>
 
-      <div class="moves-list" id="movesList"></div>
+      <div
+        class="moves-list"
+        id="movesList"
+      ></div>
 
     </div>
 
@@ -232,9 +245,9 @@
 
     let roomCode = "";
 
-    let myPlayerNumber = null;
-
     let username = "";
+
+    let myPlayerNumber = null;
 
     let currentPlayer = 1;
 
@@ -275,41 +288,70 @@
       "Normal"
     ];
 
-    const roomMenu =
-      document.getElementById("roomMenu");
+    const player1Text =
+      document.getElementById(
+        "player1Text"
+      );
 
-    const gameUI =
-      document.getElementById("gameUI");
+    const player2Text =
+      document.getElementById(
+        "player2Text"
+      );
+
+    const roomMenu =
+      document.getElementById(
+        "roomMenu"
+      );
 
     const roomCodeText =
-      document.getElementById("roomCodeText");
-
-    const playersText =
-      document.getElementById("playersText");
+      document.getElementById(
+        "roomCodeText"
+      );
 
     const roundDisplay =
-      document.getElementById("roundDisplay");
+      document.getElementById(
+        "roundDisplay"
+      );
 
     const typeDisplay =
-      document.getElementById("typeDisplay");
+      document.getElementById(
+        "typeDisplay"
+      );
 
     const turnText =
-      document.getElementById("turnText");
+      document.getElementById(
+        "turnText"
+      );
 
     const timerElement =
-      document.getElementById("timer");
+      document.getElementById(
+        "timer"
+      );
 
     const moveCount =
-      document.getElementById("moveCount");
+      document.getElementById(
+        "moveCount"
+      );
 
     const moveInput =
-      document.getElementById("moveInput");
+      document.getElementById(
+        "moveInput"
+      );
+
+    const submitButton =
+      document.getElementById(
+        "submitButton"
+      );
 
     const message =
-      document.getElementById("message");
+      document.getElementById(
+        "message"
+      );
 
     const movesList =
-      document.getElementById("movesList");
+      document.getElementById(
+        "movesList"
+      );
 
     async function loadMoves() {
 
@@ -360,9 +402,9 @@
         }
       );
 
-      roomMenu.classList.add("hidden");
-
-      gameUI.classList.remove("hidden");
+      roomMenu.classList.add(
+        "hidden"
+      );
 
       roomCodeText.textContent =
         `Room Code: ${roomCode}`;
@@ -397,9 +439,9 @@
         }
       );
 
-      roomMenu.classList.add("hidden");
-
-      gameUI.classList.remove("hidden");
+      roomMenu.classList.add(
+        "hidden"
+      );
 
       roomCodeText.textContent =
         `Room Code: ${roomCode}`;
@@ -409,7 +451,8 @@
       "playerNumber",
       number => {
 
-        myPlayerNumber = number;
+        myPlayerNumber =
+          number;
       }
     );
 
@@ -417,8 +460,11 @@
       "updatePlayers",
       data => {
 
-        playersText.textContent =
-          `Player 1: ${data.player1} | Player 2: ${data.player2}`;
+        player1Text.textContent =
+          `Player 1: ${data.player1}`;
+
+        player2Text.textContent =
+          `Player 2: ${data.player2 || "Waiting..."}`;
       }
     );
 
@@ -426,8 +472,20 @@
       "gameStart",
       () => {
 
+        moveInput.classList.remove(
+          "hidden"
+        );
+
+        submitButton.classList.remove(
+          "hidden"
+        );
+
+        timerElement.classList.remove(
+          "hidden"
+        );
+
         message.textContent =
-          "Both players connected!";
+          "Game started!";
       }
     );
 
@@ -462,13 +520,14 @@
           roundDisplay.textContent =
             "Round 1: All Moves";
 
-          typeDisplay.textContent = "";
+          typeDisplay.textContent =
+            "";
         }
 
         if (currentRound === 2) {
 
           roundDisplay.textContent =
-            "Round 2: Type Moves";
+            "Round 2: Random Type";
 
           typeDisplay.textContent =
             `Type: ${currentType}`;
@@ -479,7 +538,8 @@
           roundDisplay.textContent =
             "Round 3: Signature Moves";
 
-          typeDisplay.textContent = "";
+          typeDisplay.textContent =
+            "";
         }
       }
     );
@@ -493,6 +553,11 @@
 
         currentPlayer =
           data.currentPlayer;
+
+        timer = 60;
+
+        timerElement.textContent =
+          timer;
 
         moveCount.textContent =
           `${usedMoves.length} / 937 Moves Used`;
@@ -511,21 +576,28 @@
             "Opponent's Turn";
         }
 
-        movesList.innerHTML = "";
+        movesList.innerHTML =
+          "";
 
-        usedMoves.forEach(move => {
+        usedMoves.forEach(
+          move => {
 
-          const tag =
-            document.createElement("div");
+            const tag =
+              document.createElement(
+                "div"
+              );
 
-          tag.className =
-            "move-tag";
+            tag.className =
+              "move-tag";
 
-          tag.textContent =
-            move;
+            tag.textContent =
+              move;
 
-          movesList.appendChild(tag);
-        });
+            movesList.appendChild(
+              tag
+            );
+          }
+        );
 
         message.textContent =
           `${data.move} accepted!`;
@@ -615,7 +687,8 @@
         }
       );
 
-      moveInput.value = "";
+      moveInput.value =
+        "";
 
       moveInput.focus();
     }

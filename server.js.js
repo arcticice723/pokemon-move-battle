@@ -1,5 +1,7 @@
 const express = require("express");
+
 const http = require("http");
+
 const { Server } = require("socket.io");
 
 const app = express();
@@ -12,110 +14,123 @@ app.use(express.static(__dirname));
 
 const rooms = {};
 
-io.on("connection", (socket) => {
+io.on("connection", socket => {
 
   console.log("A player connected!");
 
-  socket.on("createRoom", (data) => {
+  socket.on(
+    "createRoom",
+    data => {
 
-    const roomCode =
-      data.roomCode;
+      const roomCode =
+        data.roomCode;
 
-    socket.join(roomCode);
+      socket.join(roomCode);
 
-    rooms[roomCode] = {
+      rooms[roomCode] = {
 
-      player1: {
+        player1: {
+          id: socket.id,
+          username:
+            data.username
+        },
+
+        player2: null,
+
+        currentPlayer: 1,
+
+        usedMoves: [],
+
+        timerStarted: false
+      };
+
+      socket.emit(
+        "playerNumber",
+        1
+      );
+
+      io.to(roomCode).emit(
+        "updatePlayers",
+        {
+          player1:
+            data.username,
+
+          player2: null
+        }
+      );
+
+      console.log(
+        `Room created: ${roomCode}`
+      );
+    }
+  );
+
+  socket.on(
+    "joinRoom",
+    data => {
+
+      const room =
+        rooms[data.roomCode];
+
+      if (!room) {
+
+        socket.emit(
+          "errorMessage",
+          "Room not found"
+        );
+
+        return;
+      }
+
+      if (room.player2) {
+
+        socket.emit(
+          "errorMessage",
+          "Room is full"
+        );
+
+        return;
+      }
+
+      room.player2 = {
+
         id: socket.id,
-        username: data.username
-      },
 
-      player2: null,
+        username:
+          data.username
+      };
 
-      currentPlayer: 1,
-
-      usedMoves: [],
-
-      timerStarted: false
-    };
-
-    socket.emit(
-      "playerNumber",
-      1
-    );
-
-    io.to(roomCode).emit(
-      "updatePlayers",
-      {
-        player1:
-          data.username,
-
-        player2: null
-      }
-    );
-
-    console.log(
-      `Room created: ${roomCode}`
-    );
-  });
-
-  socket.on("joinRoom", (data) => {
-
-    const room =
-      rooms[data.roomCode];
-
-    if (!room) {
-
-      socket.emit(
-        "errorMessage",
-        "Room not found"
+      socket.join(
+        data.roomCode
       );
 
-      return;
-    }
-
-    if (room.player2) {
-
       socket.emit(
-        "errorMessage",
-        "Room is full"
+        "playerNumber",
+        2
       );
 
-      return;
+      io.to(
+        data.roomCode
+      ).emit(
+        "updatePlayers",
+        {
+          player1:
+            room.player1
+              .username,
+
+          player2:
+            room.player2
+              .username
+        }
+      );
+
+      io.to(
+        data.roomCode
+      ).emit(
+        "gameStart"
+      );
     }
-
-    room.player2 = {
-
-      id: socket.id,
-      username: data.username
-    };
-
-    socket.join(data.roomCode);
-
-    socket.emit(
-      "playerNumber",
-      2
-    );
-
-    io.to(data.roomCode).emit(
-      "updatePlayers",
-      {
-        player1:
-          room.player1.username,
-
-        player2:
-          room.player2.username
-      }
-    );
-
-    io.to(data.roomCode).emit(
-      "gameStart"
-    );
-
-    console.log(
-      `Player joined room: ${data.roomCode}`
-    );
-  });
+  );
 
   socket.on(
     "startTimer",
@@ -208,7 +223,9 @@ io.on("connection", (socket) => {
           ? 2
           : 1;
 
-      io.to(data.roomCode).emit(
+      io.to(
+        data.roomCode
+      ).emit(
         "moveAccepted",
         {
           move: data.move,
@@ -232,6 +249,7 @@ io.on("connection", (socket) => {
       );
     }
   );
+
 });
 
 server.listen(
