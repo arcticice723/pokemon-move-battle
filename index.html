@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
   <title>Pokémon Move Battle Online</title>
 
@@ -22,7 +22,7 @@
       padding: 30px;
       border-radius: 25px;
       width: 90%;
-      max-width: 600px;
+      max-width: 650px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.2);
       text-align: center;
     }
@@ -31,11 +31,24 @@
       margin-bottom: 10px;
     }
 
+    .room-code {
+      font-size: 22px;
+      margin-bottom: 15px;
+      color: #333;
+    }
+
     .timer {
       font-size: 64px;
       color: #e63946;
       font-weight: bold;
       margin: 20px 0;
+    }
+
+    .move-count {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      color: #444;
     }
 
     input {
@@ -66,6 +79,7 @@
       margin-top: 15px;
       font-size: 18px;
       font-weight: bold;
+      min-height: 30px;
     }
 
     .used-moves {
@@ -77,7 +91,7 @@
       background: #f1f1f1;
       padding: 10px;
       border-radius: 12px;
-      max-height: 150px;
+      max-height: 250px;
       overflow-y: auto;
       display: flex;
       flex-wrap: wrap;
@@ -89,12 +103,6 @@
       padding: 5px 10px;
       border-radius: 8px;
       font-size: 14px;
-    }
-
-    .room-code {
-      font-size: 24px;
-      margin-bottom: 15px;
-      color: #333;
     }
   </style>
 </head>
@@ -125,10 +133,15 @@
       60
     </div>
 
+    <div class="move-count" id="moveCount">
+      0 / 937 Moves Used
+    </div>
+
     <input
       type="text"
       id="moveInput"
       placeholder="Enter a Pokémon move"
+      autocomplete="off"
     />
 
     <br />
@@ -157,8 +170,6 @@
 
     const socket = io();
 
-    console.log("Connected to server!");
-
     let roomCode = "";
 
     let myPlayerNumber = null;
@@ -172,6 +183,8 @@
     let usedMoves = [];
 
     let gameOver = false;
+
+    const TOTAL_MOVES = 937;
 
     const timerElement =
       document.getElementById("timer");
@@ -190,6 +203,9 @@
 
     const roomCodeText =
       document.getElementById("roomCodeText");
+
+    const moveCount =
+      document.getElementById("moveCount");
 
     async function loadMoves() {
 
@@ -224,6 +240,12 @@
     }
 
     loadMoves();
+
+    function updateMoveCounter() {
+
+      moveCount.textContent =
+        `${usedMoves.length} / ${TOTAL_MOVES} Moves Used`;
+    }
 
     function createRoom() {
 
@@ -271,17 +293,6 @@
 
         message.textContent =
           `You are Player ${number}`;
-
-        if (number === 1) {
-
-          turnText.textContent =
-            "Your Turn";
-
-        } else {
-
-          turnText.textContent =
-            "Player 1's Turn";
-        }
       }
     );
 
@@ -306,8 +317,7 @@
       "moveAccepted",
       data => {
 
-        usedMoves =
-          data.usedMoves;
+        usedMoves = data.usedMoves;
 
         currentPlayer =
           data.currentPlayer;
@@ -349,6 +359,8 @@
 
           movesList.appendChild(tag);
         });
+
+        updateMoveCounter();
       }
     );
 
@@ -415,20 +427,6 @@
         return;
       }
 
-      if (
-        usedMoves.some(
-          move =>
-            move.toLowerCase() ===
-            validMove.toLowerCase()
-        )
-      ) {
-
-        message.textContent =
-          "That move was already used!";
-
-        return;
-      }
-
       socket.emit(
         "submitMove",
         {
@@ -438,6 +436,8 @@
       );
 
       moveInput.value = "";
+
+      moveInput.focus();
     }
 
     moveInput.addEventListener(
@@ -450,6 +450,8 @@
         }
       }
     );
+
+    updateMoveCounter();
 
   </script>
 
