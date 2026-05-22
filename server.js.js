@@ -21,11 +21,15 @@ io.on("connection", (socket) => {
     socket.join(roomCode);
 
     rooms[roomCode] = {
-      usedMoves: [],
-      currentPlayer: 1
+      player1: socket.id,
+      player2: null,
+      currentPlayer: 1,
+      usedMoves: []
     };
 
-    socket.emit("roomCreated", roomCode);
+    socket.emit("playerNumber", 1);
+
+    console.log(`Room created: ${roomCode}`);
   });
 
   socket.on("joinRoom", (roomCode) => {
@@ -42,9 +46,25 @@ io.on("connection", (socket) => {
       return;
     }
 
+    if (room.player2) {
+
+      socket.emit(
+        "errorMessage",
+        "Room is full"
+      );
+
+      return;
+    }
+
+    room.player2 = socket.id;
+
     socket.join(roomCode);
 
+    socket.emit("playerNumber", 2);
+
     io.to(roomCode).emit("gameStart");
+
+    console.log(`Player joined room: ${roomCode}`);
   });
 
   socket.on("submitMove", (data) => {
@@ -53,7 +73,28 @@ io.on("connection", (socket) => {
 
     if (!room) return;
 
-    const move = data.move.toLowerCase();
+    let playerNumber = null;
+
+    if (socket.id === room.player1) {
+      playerNumber = 1;
+    }
+
+    if (socket.id === room.player2) {
+      playerNumber = 2;
+    }
+
+    if (playerNumber !== room.currentPlayer) {
+
+      socket.emit(
+        "errorMessage",
+        "Not your turn!"
+      );
+
+      return;
+    }
+
+    const move =
+      data.move.toLowerCase();
 
     if (room.usedMoves.includes(move)) {
 
@@ -68,7 +109,9 @@ io.on("connection", (socket) => {
     room.usedMoves.push(move);
 
     room.currentPlayer =
-      room.currentPlayer === 1 ? 2 : 1;
+      room.currentPlayer === 1
+        ? 2
+        : 1;
 
     io.to(data.roomCode).emit(
       "moveAccepted",
