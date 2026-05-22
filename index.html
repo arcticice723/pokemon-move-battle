@@ -377,84 +377,99 @@
 
     loadMoves();
 
-    function createRoom() {
+   function createRoom() {
 
-      username =
-        document
-          .getElementById(
-            "usernameInput"
-         )
-          .value
-          .trim();
+  username =
+    document
+      .getElementById(
+        "usernameInput"
+      )
+      .value
+      .trim();
 
-      if (!username) return;
+  if (!username) return;
 
-      roomCode =
-        Math.random()
-          .toString(36)
-          .substring(2, 7);
+  roomCode =
+    Math.random()
+      .toString(36)
+      .substring(2, 7);
 
-      socket.emit(
-        "createRoom",
-        {
-          roomCode,
-          username
-        }
-      );
-
-      player1Text.textContent =
-        `Player 1: ${username}`;
-
-      player2Text.textContent =
-        `Player 2: Waiting...`;
-
-      roomMenu.classList.add(
-        "hidden"
-      );
-
-      roomCodeText.textContent =
-        `Room Code: ${roomCode}`;
-
-      message.textContent =
-        "Waiting for Player 2...";
+  socket.emit(
+    "createRoom",
+    {
+      roomCode,
+      username
     }
+  );
 
-    function joinRoom() {
+  player1Text.textContent =
+    `Player 1: ${username}`;
 
-      username =
-        document
-          .getElementById(
-            "usernameInput"
-          )
-          .value
-          .trim();
+  player2Text.textContent =
+    `Player 2: Waiting...`;
 
-      if (!username) return;
+  roomMenu.classList.add(
+    "hidden"
+  );
 
-      roomCode =
-        document
-          .getElementById(
-            "roomJoinInput"
-          )
-          .value
-          .trim()
-          .toLowerCase();
+  document
+    .getElementById("gameUI")
+    .classList.remove(
+      "hidden"
+    );
 
-      socket.emit(
-        "joinRoom",
-        {
-          roomCode,
-          username
-        }
-      );
+  roomCodeText.textContent =
+    `Room Code: ${roomCode}`;
 
-      roomMenu.classList.add(
-        "hidden"
-      );
+  message.textContent =
+    "Waiting for Player 2...";
+}
 
-      roomCodeText.textContent =
-        `Room Code: ${roomCode}`;
+function joinRoom() {
+
+  username =
+    document
+      .getElementById(
+        "usernameInput"
+      )
+      .value
+      .trim();
+
+  if (!username) return;
+
+  roomCode =
+    document
+      .getElementById(
+        "roomJoinInput"
+      )
+      .value
+      .trim()
+      .toLowerCase();
+
+  socket.emit(
+    "joinRoom",
+    {
+      roomCode,
+      username
     }
+  );
+
+  roomMenu.classList.add(
+    "hidden"
+  );
+
+  document
+    .getElementById("gameUI")
+    .classList.remove(
+      "hidden"
+    );
+
+  roomCodeText.textContent =
+    `Room Code: ${roomCode}`;
+
+  message.textContent =
+    "Joining room...";
+}
 
     socket.on(
       "playerNumber",
@@ -477,26 +492,50 @@
       }
     );
 
-    socket.on(
-      "gameStart",
-      () => {
+   socket.on(
+  "gameStart",
+  () => {
 
-        moveInput.classList.remove(
-          "hidden"
-        );
+    document
+      .getElementById("gameUI")
+      .classList.remove(
+        "hidden"
+      );
 
-        submitButton.classList.remove(
-          "hidden"
-        );
-
-        timerElement.classList.remove(
-          "hidden"
-        );
-
-        message.textContent =
-          "Game started!";
-      }
+    moveInput.classList.remove(
+      "hidden"
     );
+
+    submitButton.classList.remove(
+      "hidden"
+    );
+
+    timerElement.classList.remove(
+      "hidden"
+    );
+
+    roomCodeText.classList.remove(
+      "hidden"
+    );
+
+    message.textContent =
+      "Game started!";
+
+    if (
+      currentPlayer ===
+      myPlayerNumber
+    ) {
+
+      turnText.textContent =
+        "Your Turn";
+
+    } else {
+
+      turnText.textContent =
+        "Opponent's Turn";
+    }
+  }
+);
 
     socket.on(
       "startTimer",
@@ -571,19 +610,8 @@
         moveCount.textContent =
           `${usedMoves.length} / 937 Moves Used`;
 
-        if (
-          currentPlayer ===
-          myPlayerNumber
-        ) {
-
-          turnText.textContent =
-            "Your Turn";
-
-        } else {
-
-          turnText.textContent =
-            "Opponent's Turn";
-        }
+       turnText.textContent =
+  "Player 1 Starts";
 
         movesList.innerHTML =
           "";
