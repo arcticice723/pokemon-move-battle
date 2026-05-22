@@ -10,6 +10,9 @@ const server = http.createServer(app);
 
 const io = new Server(server);
 
+const PORT =
+  process.env.PORT || 3000;
+
 app.use(express.static(__dirname));
 
 const rooms = {};
@@ -25,12 +28,23 @@ io.on("connection", socket => {
       const roomCode =
         data.roomCode;
 
+      if (rooms[roomCode]) {
+
+        socket.emit(
+          "errorMessage",
+          "Room code already exists."
+        );
+
+        return;
+      }
+
       socket.join(roomCode);
 
       rooms[roomCode] = {
 
         player1: {
           id: socket.id,
+
           username:
             data.username
         },
@@ -129,6 +143,10 @@ io.on("connection", socket => {
       ).emit(
         "gameStart"
       );
+
+      console.log(
+        `Player joined room ${data.roomCode}`
+      );
     }
   );
 
@@ -167,6 +185,7 @@ io.on("connection", socket => {
         null;
 
       if (
+        room.player1 &&
         socket.id ===
         room.player1.id
       ) {
@@ -247,17 +266,76 @@ io.on("connection", socket => {
       console.log(
         "A player disconnected!"
       );
+
+      for (
+        const roomCode in rooms
+      ) {
+
+        const room =
+          rooms[roomCode];
+
+        if (
+          room.player1 &&
+          room.player1.id ===
+            socket.id
+        ) {
+
+          io.to(roomCode).emit(
+            "errorMessage",
+            "Player 1 disconnected."
+          );
+
+          delete rooms[roomCode];
+
+          console.log(
+            `Deleted room ${roomCode}`
+          );
+        }
+
+        else if (
+          room.player2 &&
+          room.player2.id ===
+            socket.id
+        ) {
+
+          io.to(roomCode).emit(
+            "errorMessage",
+            "Player 2 disconnected."
+          );
+
+          room.player2 =
+            null;
+
+          io.to(roomCode).emit(
+            "updatePlayers",
+            {
+              player1:
+                room.player1
+                  .username,
+
+              player2:
+                "Waiting..."
+            }
+          );
+
+          room.timerStarted =
+            false;
+
+          room.currentPlayer =
+            1;
+        }
+      }
     }
   );
 
 });
 
 server.listen(
-  3000,
+  PORT,
   () => {
 
     console.log(
-      "Server running on port 3000"
+      `Server running on port ${PORT}`
     );
   }
 );

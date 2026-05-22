@@ -38,6 +38,13 @@
       margin-bottom: 20px;
     }
 
+    #roomCodeText {
+      font-size: 26px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      color: #e63946;
+    }
+
     .hidden {
       display: none;
     }
@@ -64,6 +71,7 @@
       border-radius: 12px;
       border: 2px solid #ccc;
       margin-bottom: 15px;
+      box-sizing: border-box;
     }
 
     .timer {
@@ -173,7 +181,9 @@
 
     <div id="gameUI" class="hidden">
 
-      <div id="roomCodeText"></div>
+      <div id="roomCodeText">
+        Room Code: -----
+      </div>
 
       <div
         class="round-display"
@@ -267,27 +277,6 @@
 
     const TOTAL_MOVES = 937;
 
-    const TYPES = [
-      "Fire",
-      "Water",
-      "Grass",
-      "Electric",
-      "Ice",
-      "Fighting",
-      "Poison",
-      "Ground",
-      "Flying",
-      "Psychic",
-      "Bug",
-      "Rock",
-      "Ghost",
-      "Dragon",
-      "Dark",
-      "Steel",
-      "Fairy",
-      "Normal"
-    ];
-
     const player1Text =
       document.getElementById(
         "player1Text"
@@ -373,103 +362,110 @@
             )
             .join(" ")
         );
+
+      message.textContent =
+        `Loaded ${pokemonMoves.length} moves!`;
     }
 
     loadMoves();
 
-   function createRoom() {
+    function generateRoomCode() {
 
-  username =
-    document
-      .getElementById(
-        "usernameInput"
-      )
-      .value
-      .trim();
-
-  if (!username) return;
-
-  roomCode =
-    Math.random()
-      .toString(36)
-      .substring(2, 7);
-
-  socket.emit(
-    "createRoom",
-    {
-      roomCode,
-      username
+      return Math.floor(
+        10000 + Math.random() * 90000
+      ).toString();
     }
-  );
 
-  player1Text.textContent =
-    `Player 1: ${username}`;
+    function createRoom() {
 
-  player2Text.textContent =
-    `Player 2: Waiting...`;
+      username =
+        document
+          .getElementById(
+            "usernameInput"
+          )
+          .value
+          .trim();
 
-  roomMenu.classList.add(
-    "hidden"
-  );
+      if (!username) return;
 
-  document
-    .getElementById("gameUI")
-    .classList.remove(
-      "hidden"
-    );
+      roomCode =
+        generateRoomCode();
 
-  roomCodeText.textContent =
-    `Room Code: ${roomCode}`;
+      socket.emit(
+        "createRoom",
+        {
+          roomCode,
+          username
+        }
+      );
 
-  message.textContent =
-    "Waiting for Player 2...";
-}
+      player1Text.textContent =
+        `Player 1: ${username}`;
 
-function joinRoom() {
+      player2Text.textContent =
+        `Player 2: Waiting...`;
 
-  username =
-    document
-      .getElementById(
-        "usernameInput"
-      )
-      .value
-      .trim();
+      roomMenu.classList.add(
+        "hidden"
+      );
 
-  if (!username) return;
+      document
+        .getElementById("gameUI")
+        .classList.remove(
+          "hidden"
+        );
 
-  roomCode =
-    document
-      .getElementById(
-        "roomJoinInput"
-      )
-      .value
-      .trim()
-      .toLowerCase();
+      roomCodeText.innerHTML =
+        `Room Code: <b>${roomCode}</b>`;
 
-  socket.emit(
-    "joinRoom",
-    {
-      roomCode,
-      username
+      message.textContent =
+        "Waiting for Player 2...";
     }
-  );
 
-  roomMenu.classList.add(
-    "hidden"
-  );
+    function joinRoom() {
 
-  document
-    .getElementById("gameUI")
-    .classList.remove(
-      "hidden"
-    );
+      username =
+        document
+          .getElementById(
+            "usernameInput"
+          )
+          .value
+          .trim();
 
-  roomCodeText.textContent =
-    `Room Code: ${roomCode}`;
+      if (!username) return;
 
-  message.textContent =
-    "Joining room...";
-}
+      roomCode =
+        document
+          .getElementById(
+            "roomJoinInput"
+          )
+          .value
+          .trim();
+
+      socket.emit(
+        "joinRoom",
+        {
+          roomCode,
+          username
+        }
+      );
+
+      roomMenu.classList.add(
+        "hidden"
+      );
+
+      document
+        .getElementById("gameUI")
+        .classList.remove(
+          "hidden"
+        );
+
+      roomCodeText.innerHTML =
+        `Room Code: <b>${roomCode}</b>`;
+
+      message.textContent =
+        "Joining room...";
+    }
 
     socket.on(
       "playerNumber",
@@ -492,50 +488,39 @@ function joinRoom() {
       }
     );
 
-   socket.on(
-  "gameStart",
-  () => {
+    socket.on(
+      "gameStart",
+      () => {
 
-    document
-      .getElementById("gameUI")
-      .classList.remove(
-        "hidden"
-      );
+        document
+          .getElementById("gameUI")
+          .classList.remove(
+            "hidden"
+          );
 
-    moveInput.classList.remove(
-      "hidden"
+        moveInput.classList.remove(
+          "hidden"
+        );
+
+        submitButton.classList.remove(
+          "hidden"
+        );
+
+        timerElement.classList.remove(
+          "hidden"
+        );
+
+        roomCodeText.classList.remove(
+          "hidden"
+        );
+
+        turnText.textContent =
+          "Player 1 Starts";
+
+        message.textContent =
+          "Game started!";
+      }
     );
-
-    submitButton.classList.remove(
-      "hidden"
-    );
-
-    timerElement.classList.remove(
-      "hidden"
-    );
-
-    roomCodeText.classList.remove(
-      "hidden"
-    );
-
-    message.textContent =
-      "Game started!";
-
-    if (
-      currentPlayer ===
-      myPlayerNumber
-    ) {
-
-      turnText.textContent =
-        "Your Turn";
-
-    } else {
-
-      turnText.textContent =
-        "Opponent's Turn";
-    }
-  }
-);
 
     socket.on(
       "startTimer",
@@ -549,46 +534,8 @@ function joinRoom() {
       "errorMessage",
       msg => {
 
-        message.textContent = msg;
-      }
-    );
-
-    socket.on(
-      "roundUpdate",
-      data => {
-
-        currentRound =
-          data.round;
-
-        currentType =
-          data.type;
-
-        if (currentRound === 1) {
-
-          roundDisplay.textContent =
-            "Round 1: All Moves";
-
-          typeDisplay.textContent =
-            "";
-        }
-
-        if (currentRound === 2) {
-
-          roundDisplay.textContent =
-            "Round 2: Random Type";
-
-          typeDisplay.textContent =
-            `Type: ${currentType}`;
-        }
-
-        if (currentRound === 3) {
-
-          roundDisplay.textContent =
-            "Round 3: Signature Moves";
-
-          typeDisplay.textContent =
-            "";
-        }
+        message.textContent =
+          msg;
       }
     );
 
@@ -610,8 +557,19 @@ function joinRoom() {
         moveCount.textContent =
           `${usedMoves.length} / 937 Moves Used`;
 
-       turnText.textContent =
-  "Player 1 Starts";
+        if (
+          currentPlayer ===
+          myPlayerNumber
+        ) {
+
+          turnText.textContent =
+            "Your Turn";
+
+        } else {
+
+          turnText.textContent =
+            "Opponent's Turn";
+        }
 
         movesList.innerHTML =
           "";
