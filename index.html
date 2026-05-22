@@ -383,7 +383,7 @@
         document
           .getElementById(
             "usernameInput"
-          )
+         )
           .value
           .trim();
 
@@ -402,12 +402,21 @@
         }
       );
 
+      player1Text.textContent =
+        `Player 1: ${username}`;
+
+      player2Text.textContent =
+        `Player 2: Waiting...`;
+
       roomMenu.classList.add(
         "hidden"
       );
 
       roomCodeText.textContent =
         `Room Code: ${roomCode}`;
+
+      message.textContent =
+        "Waiting for Player 2...";
     }
 
     function joinRoom() {
