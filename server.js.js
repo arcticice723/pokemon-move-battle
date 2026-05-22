@@ -16,25 +16,53 @@ io.on("connection", (socket) => {
 
   console.log("A player connected!");
 
-  socket.on("createRoom", (roomCode) => {
+  socket.on("createRoom", (data) => {
+
+    const roomCode =
+      data.roomCode;
 
     socket.join(roomCode);
 
     rooms[roomCode] = {
-      player1: socket.id,
+
+      player1: {
+        id: socket.id,
+        username: data.username
+      },
+
       player2: null,
+
       currentPlayer: 1,
-      usedMoves: []
+
+      usedMoves: [],
+
+      timerStarted: false
     };
 
-    socket.emit("playerNumber", 1);
+    socket.emit(
+      "playerNumber",
+      1
+    );
 
-    console.log(`Room created: ${roomCode}`);
+    io.to(roomCode).emit(
+      "updatePlayers",
+      {
+        player1:
+          data.username,
+
+        player2: null
+      }
+    );
+
+    console.log(
+      `Room created: ${roomCode}`
+    );
   });
 
-  socket.on("joinRoom", (roomCode) => {
+  socket.on("joinRoom", (data) => {
 
-    const room = rooms[roomCode];
+    const room =
+      rooms[data.roomCode];
 
     if (!room) {
 
@@ -56,84 +84,162 @@ io.on("connection", (socket) => {
       return;
     }
 
-    room.player2 = socket.id;
+    room.player2 = {
 
-    socket.join(roomCode);
+      id: socket.id,
+      username: data.username
+    };
 
-    socket.emit("playerNumber", 2);
+    socket.join(data.roomCode);
 
-    io.to(roomCode).emit("gameStart");
-
-    console.log(`Player joined room: ${roomCode}`);
-  });
-
-  socket.on("submitMove", (data) => {
-
-    const room = rooms[data.roomCode];
-
-    if (!room) return;
-
-    let playerNumber = null;
-
-    if (socket.id === room.player1) {
-      playerNumber = 1;
-    }
-
-    if (socket.id === room.player2) {
-      playerNumber = 2;
-    }
-
-    if (playerNumber !== room.currentPlayer) {
-
-      socket.emit(
-        "errorMessage",
-        "Not your turn!"
-      );
-
-      return;
-    }
-
-    const move =
-      data.move.toLowerCase();
-
-    if (room.usedMoves.includes(move)) {
-
-      socket.emit(
-        "errorMessage",
-        "Move already used!"
-      );
-
-      return;
-    }
-
-    room.usedMoves.push(move);
-
-    room.currentPlayer =
-      room.currentPlayer === 1
-        ? 2
-        : 1;
+    socket.emit(
+      "playerNumber",
+      2
+    );
 
     io.to(data.roomCode).emit(
-      "moveAccepted",
+      "updatePlayers",
       {
-        move: data.move,
-        usedMoves: room.usedMoves,
-        currentPlayer: room.currentPlayer
+        player1:
+          room.player1.username,
+
+        player2:
+          room.player2.username
       }
     );
-  });
 
-  socket.on("disconnect", () => {
+    io.to(data.roomCode).emit(
+      "gameStart"
+    );
 
     console.log(
-      "A player disconnected!"
+      `Player joined room: ${data.roomCode}`
     );
   });
-});
 
-server.listen(3000, () => {
+  socket.on(
+    "startTimer",
+    roomCode => {
 
-  console.log(
-    "Server running on port 3000"
+      const room =
+        rooms[roomCode];
+
+      if (!room) return;
+
+      if (
+        room.timerStarted
+      ) return;
+
+      room.timerStarted =
+        true;
+
+      io.to(roomCode).emit(
+        "startTimer"
+      );
+    }
+  );
+
+  socket.on(
+    "submitMove",
+    data => {
+
+      const room =
+        rooms[data.roomCode];
+
+      if (!room) return;
+
+      let playerNumber =
+        null;
+
+      if (
+        socket.id ===
+        room.player1.id
+      ) {
+
+        playerNumber = 1;
+      }
+
+      if (
+        room.player2 &&
+        socket.id ===
+        room.player2.id
+      ) {
+
+        playerNumber = 2;
+      }
+
+      if (
+        playerNumber !==
+        room.currentPlayer
+      ) {
+
+        socket.emit(
+          "errorMessage",
+          "Not your turn!"
+        );
+
+        return;
+      }
+
+      const move =
+        data.move
+          .toLowerCase();
+
+      if (
+        room.usedMoves.includes(
+          move
+        )
+      ) {
+
+        socket.emit(
+          "errorMessage",
+          "Move already used!"
+        );
+
+        return;
+      }
+
+      room.usedMoves.push(
+        move
+      );
+
+      room.currentPlayer =
+        room.currentPlayer === 1
+          ? 2
+          : 1;
+
+      io.to(data.roomCode).emit(
+        "moveAccepted",
+        {
+          move: data.move,
+
+          usedMoves:
+            room.usedMoves,
+
+          currentPlayer:
+            room.currentPlayer
+        }
+      );
+    }
+  );
+
+  socket.on(
+    "disconnect",
+    () => {
+
+      console.log(
+        "A player disconnected!"
+      );
+    }
   );
 });
+
+server.listen(
+  3000,
+  () => {
+
+    console.log(
+      "Server running on port 3000"
+    );
+  }
+);
