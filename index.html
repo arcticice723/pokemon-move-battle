@@ -2,129 +2,192 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
 
-  <title>Pokémon Move Battle Online</title>
+  <title>
+    Pokémon Move Battle Online
+  </title>
 
   <style>
 
     body {
+
       margin: 0;
+
       font-family: Arial, sans-serif;
-      background: linear-gradient(135deg, #ffe066, #ff6b6b);
+
+      background:
+        linear-gradient(
+          135deg,
+          #ffe066,
+          #ff6b6b
+        );
+
       display: flex;
+
       justify-content: center;
+
       align-items: center;
+
       min-height: 100vh;
     }
 
     .game-box {
+
       background: white;
+
       padding: 30px;
+
       border-radius: 25px;
+
       width: 90%;
-      max-width: 750px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+
+      max-width: 800px;
+
+      box-shadow:
+        0 10px 30px
+        rgba(0,0,0,0.2);
+
       text-align: center;
     }
 
     h1 {
-      margin-bottom: 5px;
+
+      margin-bottom: 10px;
     }
 
     .players {
+
       font-size: 20px;
+
       font-weight: bold;
+
       margin-bottom: 20px;
     }
 
     #roomCodeText {
-      font-size: 26px;
+
+      font-size: 28px;
+
       font-weight: bold;
+
       margin-bottom: 15px;
+
       color: #e63946;
     }
 
     .hidden {
+
       display: none;
     }
 
     button {
+
       background: #ffcc00;
+
       border: none;
+
       padding: 12px 20px;
+
       border-radius: 12px;
+
       font-size: 18px;
+
       font-weight: bold;
+
       cursor: pointer;
+
       margin: 5px;
     }
 
     button:hover {
+
       background: #ffb700;
     }
 
-    input {
+    input,
+    select {
+
       width: 90%;
+
       padding: 12px;
+
       font-size: 18px;
+
       border-radius: 12px;
+
       border: 2px solid #ccc;
+
       margin-bottom: 15px;
+
       box-sizing: border-box;
     }
 
     .timer {
+
       font-size: 72px;
+
       color: #e63946;
+
       font-weight: bold;
+
       margin: 15px 0;
     }
 
     .message {
+
       font-size: 20px;
+
       font-weight: bold;
+
       min-height: 30px;
+
       margin-top: 10px;
     }
 
     .move-count {
+
       font-size: 24px;
+
       font-weight: bold;
+
       margin: 10px 0;
     }
 
-    .round-display {
-      font-size: 28px;
-      font-weight: bold;
-      margin-top: 10px;
-      color: #444;
-    }
-
-    .type-display {
-      font-size: 24px;
-      color: #0077b6;
-      font-weight: bold;
-      margin-bottom: 15px;
-    }
-
     .moves-list {
+
       margin-top: 20px;
+
       background: #f1f1f1;
+
       padding: 10px;
+
       border-radius: 12px;
+
       max-height: 250px;
+
       overflow-y: auto;
+
       display: flex;
+
       flex-wrap: wrap;
+
       gap: 8px;
+
       text-align: left;
     }
 
     .move-tag {
+
       background: #90caf9;
+
       padding: 5px 10px;
+
       border-radius: 8px;
+
       font-size: 14px;
     }
 
@@ -135,18 +198,14 @@
 
   <div class="game-box">
 
-    <h1>Pokémon Move Battle</h1>
+    <h1>
+      Pokémon Move Battle
+    </h1>
 
-    <div class="players">
-
-      <div id="player1Text">
-        Player 1: Waiting...
-      </div>
-
-      <div id="player2Text">
-        Player 2: Waiting...
-      </div>
-
+    <div
+      class="players"
+      id="playersList"
+    >
     </div>
 
     <div id="roomMenu">
@@ -157,7 +216,37 @@
         placeholder="Enter Username"
       />
 
-      <br />
+      <select id="maxPlayersSelect">
+
+        <option value="2">
+          2 Players
+        </option>
+
+        <option value="3">
+          3 Players
+        </option>
+
+        <option value="4">
+          4 Players
+        </option>
+
+        <option value="5">
+          5 Players
+        </option>
+
+        <option value="6">
+          6 Players
+        </option>
+
+        <option value="7">
+          7 Players
+        </option>
+
+        <option value="8">
+          8 Players
+        </option>
+
+      </select>
 
       <button onclick="createRoom()">
         Create Room
@@ -171,31 +260,20 @@
         placeholder="Enter Room Code"
       />
 
-      <br />
-
       <button onclick="joinRoom()">
         Join Room
       </button>
 
     </div>
 
-    <div id="gameUI" class="hidden">
+    <div
+      id="gameUI"
+      class="hidden"
+    >
 
       <div id="roomCodeText">
         Room Code: -----
       </div>
-
-      <div
-        class="round-display"
-        id="roundDisplay"
-      >
-        Round 1: All Moves
-      </div>
-
-      <div
-        class="type-display"
-        id="typeDisplay"
-      ></div>
 
       <h2 id="turnText">
         Waiting For Players
@@ -223,8 +301,6 @@
         autocomplete="off"
       />
 
-      <br />
-
       <button
         class="hidden"
         onclick="submitMove()"
@@ -236,12 +312,14 @@
       <div
         class="message"
         id="message"
-      ></div>
+      >
+      </div>
 
       <div
         class="moves-list"
         id="movesList"
-      ></div>
+      >
+      </div>
 
     </div>
 
@@ -259,7 +337,7 @@
 
     let myPlayerNumber = null;
 
-    let currentPlayer = 1;
+    let currentPlayer = 0;
 
     let usedMoves = [];
 
@@ -271,20 +349,11 @@
 
     let gameOver = false;
 
-    let currentRound = 1;
-
-    let currentType = "";
-
     const TOTAL_MOVES = 937;
 
-    const player1Text =
+    const playersList =
       document.getElementById(
-        "player1Text"
-      );
-
-    const player2Text =
-      document.getElementById(
-        "player2Text"
+        "playersList"
       );
 
     const roomMenu =
@@ -295,16 +364,6 @@
     const roomCodeText =
       document.getElementById(
         "roomCodeText"
-      );
-
-    const roundDisplay =
-      document.getElementById(
-        "roundDisplay"
-      );
-
-    const typeDisplay =
-      document.getElementById(
-        "typeDisplay"
       );
 
     const turnText =
@@ -357,7 +416,8 @@
           move.name
             .split("-")
             .map(word =>
-              word.charAt(0).toUpperCase() +
+              word.charAt(0)
+                .toUpperCase() +
               word.slice(1)
             )
             .join(" ")
@@ -372,7 +432,8 @@
     function generateRoomCode() {
 
       return Math.floor(
-        10000 + Math.random() * 90000
+        10000 +
+        Math.random() * 90000
       ).toString();
     }
 
@@ -395,22 +456,26 @@
         "createRoom",
         {
           roomCode,
-          username
+          username,
+
+          maxPlayers:
+            parseInt(
+              document
+                .getElementById(
+                  "maxPlayersSelect"
+                ).value
+            )
         }
       );
-
-      player1Text.textContent =
-        `Player 1: ${username}`;
-
-      player2Text.textContent =
-        `Player 2: Waiting...`;
 
       roomMenu.classList.add(
         "hidden"
       );
 
       document
-        .getElementById("gameUI")
+        .getElementById(
+          "gameUI"
+        )
         .classList.remove(
           "hidden"
         );
@@ -419,7 +484,7 @@
         `Room Code: <b>${roomCode}</b>`;
 
       message.textContent =
-        "Waiting for Player 2...";
+        "Waiting for players...";
     }
 
     function joinRoom() {
@@ -455,16 +520,15 @@
       );
 
       document
-        .getElementById("gameUI")
+        .getElementById(
+          "gameUI"
+        )
         .classList.remove(
           "hidden"
         );
 
       roomCodeText.innerHTML =
         `Room Code: <b>${roomCode}</b>`;
-
-      message.textContent =
-        "Joining room...";
     }
 
     socket.on(
@@ -472,31 +536,41 @@
       number => {
 
         myPlayerNumber =
-          number;
+          number - 1;
       }
     );
 
     socket.on(
       "updatePlayers",
-      data => {
+      players => {
 
-        player1Text.textContent =
-          `Player 1: ${data.player1}`;
+        playersList.innerHTML =
+          "";
 
-        player2Text.textContent =
-          `Player 2: ${data.player2 || "Waiting..."}`;
+        for (
+          let i = 0;
+          i < players.length;
+          i++
+        ) {
+
+          const div =
+            document.createElement(
+              "div"
+            );
+
+          div.textContent =
+            `Player ${i + 1}: ${players[i].username}`;
+
+          playersList.appendChild(
+            div
+          );
+        }
       }
     );
 
     socket.on(
       "gameStart",
       () => {
-
-        document
-          .getElementById("gameUI")
-          .classList.remove(
-            "hidden"
-          );
 
         moveInput.classList.remove(
           "hidden"
@@ -507,10 +581,6 @@
         );
 
         timerElement.classList.remove(
-          "hidden"
-        );
-
-        roomCodeText.classList.remove(
           "hidden"
         );
 
@@ -555,7 +625,7 @@
           timer;
 
         moveCount.textContent =
-          `${usedMoves.length} / 937 Moves Used`;
+          `${usedMoves.length} / ${TOTAL_MOVES} Moves Used`;
 
         if (
           currentPlayer ===
@@ -568,7 +638,7 @@
         } else {
 
           turnText.textContent =
-            "Opponent's Turn";
+            `${data.currentUsername}'s Turn`;
         }
 
         movesList.innerHTML =
@@ -615,16 +685,11 @@
 
         gameOver = true;
 
-        const winner =
-          currentPlayer === 1
-            ? 2
-            : 1;
-
         turnText.textContent =
           "Game Over";
 
         message.textContent =
-          `Player ${winner} wins!`;
+          "Time ran out!";
       }
 
     }, 1000);
@@ -664,9 +729,7 @@
         return;
       }
 
-      if (
-        !timerStarted
-      ) {
+      if (!timerStarted) {
 
         socket.emit(
           "startTimer",

@@ -15,6 +15,8 @@ const PORT =
 
 app.use(express.static(__dirname));
 
+const MAX_PLAYERS = 8;
+
 const rooms = {};
 
 io.on("connection", socket => {
@@ -42,16 +44,15 @@ io.on("connection", socket => {
 
       rooms[roomCode] = {
 
-        player1: {
-          id: socket.id,
+        players: [
+          {
+            id: socket.id,
+            username:
+              data.username
+          }
+        ],
 
-          username:
-            data.username
-        },
-
-        player2: null,
-
-        currentPlayer: 1,
+        currentPlayer: 0,
 
         usedMoves: [],
 
@@ -65,12 +66,8 @@ io.on("connection", socket => {
 
       io.to(roomCode).emit(
         "updatePlayers",
-        {
-          player1:
-            data.username,
-
-          player2: null
-        }
+        rooms[roomCode]
+          .players
       );
 
       console.log(
@@ -96,7 +93,10 @@ io.on("connection", socket => {
         return;
       }
 
-      if (room.player2) {
+      if (
+        room.players.length >=
+        MAX_PLAYERS
+      ) {
 
         socket.emit(
           "errorMessage",
@@ -106,13 +106,11 @@ io.on("connection", socket => {
         return;
       }
 
-      room.player2 = {
-
+      room.players.push({
         id: socket.id,
-
         username:
           data.username
-      };
+      });
 
       socket.join(
         data.roomCode
@@ -120,32 +118,29 @@ io.on("connection", socket => {
 
       socket.emit(
         "playerNumber",
-        2
+        room.players.length
       );
 
       io.to(
         data.roomCode
       ).emit(
         "updatePlayers",
-        {
-          player1:
-            room.player1
-              .username,
-
-          player2:
-            room.player2
-              .username
-        }
+        room.players
       );
 
-      io.to(
-        data.roomCode
-      ).emit(
-        "gameStart"
-      );
+      if (
+        room.players.length >= 2
+      ) {
+
+        io.to(
+          data.roomCode
+        ).emit(
+          "gameStart"
+        );
+      }
 
       console.log(
-        `Player joined room ${data.roomCode}`
+        `${data.username} joined room ${data.roomCode}`
       );
     }
   );
@@ -181,29 +176,19 @@ io.on("connection", socket => {
 
       if (!room) return;
 
-      let playerNumber =
-        null;
+      const playerIndex =
+        room.players.findIndex(
+          player =>
+            player.id ===
+            socket.id
+        );
 
       if (
-        room.player1 &&
-        socket.id ===
-        room.player1.id
-      ) {
-
-        playerNumber = 1;
-      }
+        playerIndex === -1
+      ) return;
 
       if (
-        room.player2 &&
-        socket.id ===
-        room.player2.id
-      ) {
-
-        playerNumber = 2;
-      }
-
-      if (
-        playerNumber !==
+        playerIndex !==
         room.currentPlayer
       ) {
 
@@ -238,9 +223,10 @@ io.on("connection", socket => {
       );
 
       room.currentPlayer =
-        room.currentPlayer === 1
-          ? 2
-          : 1;
+        (
+          room.currentPlayer + 1
+        ) %
+        room.players.length;
 
       io.to(
         data.roomCode
@@ -253,7 +239,12 @@ io.on("connection", socket => {
             room.usedMoves,
 
           currentPlayer:
-            room.currentPlayer
+            room.currentPlayer,
+
+          currentUsername:
+            room.players[
+              room.currentPlayer
+            ].username
         }
       );
     }
@@ -274,55 +265,65 @@ io.on("connection", socket => {
         const room =
           rooms[roomCode];
 
+        const playerIndex =
+          room.players.findIndex(
+            player =>
+              player.id ===
+              socket.id
+          );
+
         if (
-          room.player1 &&
-          room.player1.id ===
-            socket.id
+          playerIndex !== -1
         ) {
+
+          const disconnectedPlayer =
+            room.players[
+              playerIndex
+            ].username;
+
+          room.players.splice(
+            playerIndex,
+            1
+          );
 
           io.to(roomCode).emit(
             "errorMessage",
-            "Player 1 disconnected."
+            `${disconnectedPlayer} disconnected.`
           );
-
-          delete rooms[roomCode];
-
-          console.log(
-            `Deleted room ${roomCode}`
-          );
-        }
-
-        else if (
-          room.player2 &&
-          room.player2.id ===
-            socket.id
-        ) {
-
-          io.to(roomCode).emit(
-            "errorMessage",
-            "Player 2 disconnected."
-          );
-
-          room.player2 =
-            null;
 
           io.to(roomCode).emit(
             "updatePlayers",
-            {
-              player1:
-                room.player1
-                  .username,
-
-              player2:
-                "Waiting..."
-            }
+            room.players
           );
+
+          if (
+            room.players.length === 0
+          ) {
+
+            delete rooms[
+              roomCode
+            ];
+
+            console.log(
+              `Deleted room ${roomCode}`
+            );
+
+            continue;
+          }
+
+          if (
+            room.currentPlayer >=
+            room.players.length
+          ) {
+
+            room.currentPlayer =
+              0;
+          }
 
           room.timerStarted =
             false;
 
-          room.currentPlayer =
-            1;
+          break;
         }
       }
     }
