@@ -1,7 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
+
   <meta charset="UTF-8" />
+
   <meta
     name="viewport"
     content="width=device-width, initial-scale=1.0"
@@ -192,6 +195,7 @@
     }
 
   </style>
+
 </head>
 
 <body>
@@ -290,7 +294,7 @@
         class="move-count"
         id="moveCount"
       >
-        0 / 937 Moves Used
+        0 Moves Used
       </div>
 
       <input
@@ -343,13 +347,7 @@
 
     let pokemonMoves = [];
 
-    let timer = 60;
-
-    let timerStarted = false;
-
     let gameOver = false;
-
-    const TOTAL_MOVES = 937;
 
     const playersList =
       document.getElementById(
@@ -403,39 +401,39 @@
 
     async function loadMoves() {
 
-      const response =
-        await fetch(
-          "https://pokeapi.co/api/v2/move?limit=10000"
-        );
+      try {
 
-      const data =
-        await response.json();
+        const response =
+          await fetch(
+            "https://pokeapi.co/api/v2/move?limit=10000"
+          );
 
-      pokemonMoves =
-        data.results.map(move =>
-          move.name
-            .split("-")
-            .map(word =>
-              word.charAt(0)
-                .toUpperCase() +
-              word.slice(1)
-            )
-            .join(" ")
-        );
+        const data =
+          await response.json();
 
-      message.textContent =
-        `Loaded ${pokemonMoves.length} moves!`;
+        pokemonMoves =
+          data.results.map(move =>
+            move.name
+              .split("-")
+              .map(word =>
+                word.charAt(0)
+                  .toUpperCase() +
+                word.slice(1)
+              )
+              .join(" ")
+          );
+
+        message.textContent =
+          `Loaded ${pokemonMoves.length} moves!`;
+
+      } catch {
+
+        message.textContent =
+          "Failed to load moves.";
+      }
     }
 
     loadMoves();
-
-    function generateRoomCode() {
-
-      return Math.floor(
-        10000 +
-        Math.random() * 90000
-      ).toString();
-    }
 
     function createRoom() {
 
@@ -449,13 +447,9 @@
 
       if (!username) return;
 
-      roomCode =
-        generateRoomCode();
-
       socket.emit(
         "createRoom",
         {
-          roomCode,
           username,
 
           maxPlayers:
@@ -467,24 +461,6 @@
             )
         }
       );
-
-      roomMenu.classList.add(
-        "hidden"
-      );
-
-      document
-        .getElementById(
-          "gameUI"
-        )
-        .classList.remove(
-          "hidden"
-        );
-
-      roomCodeText.innerHTML =
-        `Room Code: <b>${roomCode}</b>`;
-
-      message.textContent =
-        "Waiting for players...";
     }
 
     function joinRoom() {
@@ -514,29 +490,61 @@
           username
         }
       );
+    }
 
-      roomMenu.classList.add(
-        "hidden"
-      );
+    socket.on(
+      "roomCreated",
+      code => {
 
-      document
-        .getElementById(
-          "gameUI"
-        )
-        .classList.remove(
+        roomCode = code;
+
+        roomMenu.classList.add(
           "hidden"
         );
 
-      roomCodeText.innerHTML =
-        `Room Code: <b>${roomCode}</b>`;
-    }
+        document
+          .getElementById(
+            "gameUI"
+          )
+          .classList.remove(
+            "hidden"
+          );
+
+        roomCodeText.innerHTML =
+          `Room Code: <b>${roomCode}</b>`;
+
+        message.textContent =
+          "Waiting for players...";
+      }
+    );
+
+    socket.on(
+      "joinSuccess",
+      () => {
+
+        roomMenu.classList.add(
+          "hidden"
+        );
+
+        document
+          .getElementById(
+            "gameUI"
+          )
+          .classList.remove(
+            "hidden"
+          );
+
+        roomCodeText.innerHTML =
+          `Room Code: <b>${roomCode}</b>`;
+      }
+    );
 
     socket.on(
       "playerNumber",
       number => {
 
         myPlayerNumber =
-          number - 1;
+          number;
       }
     );
 
@@ -570,7 +578,10 @@
 
     socket.on(
       "gameStart",
-      () => {
+      data => {
+
+        currentPlayer =
+          data.currentPlayer;
 
         moveInput.classList.remove(
           "hidden"
@@ -584,8 +595,22 @@
           "hidden"
         );
 
-        turnText.textContent =
-          "Player 1 Starts";
+        timerElement.textContent =
+          data.timer;
+
+        if (
+          currentPlayer ===
+          myPlayerNumber
+        ) {
+
+          turnText.textContent =
+            "Your Turn";
+
+        } else {
+
+          turnText.textContent =
+            `${data.currentUsername}'s Turn`;
+        }
 
         message.textContent =
           "Game started!";
@@ -593,10 +618,11 @@
     );
 
     socket.on(
-      "startTimer",
-      () => {
+      "timerUpdate",
+      time => {
 
-        timerStarted = true;
+        timerElement.textContent =
+          time;
       }
     );
 
@@ -619,13 +645,11 @@
         currentPlayer =
           data.currentPlayer;
 
-        timer = 60;
-
         timerElement.textContent =
-          timer;
+          data.timer;
 
         moveCount.textContent =
-          `${usedMoves.length} / ${TOTAL_MOVES} Moves Used`;
+          `${usedMoves.length} / ${pokemonMoves.length} Moves Used`;
 
         if (
           currentPlayer ===
@@ -669,19 +693,9 @@
       }
     );
 
-    setInterval(() => {
-
-      if (
-        !timerStarted ||
-        gameOver
-      ) return;
-
-      timer--;
-
-      timerElement.textContent =
-        timer;
-
-      if (timer <= 0) {
+    socket.on(
+      "gameOver",
+      data => {
 
         gameOver = true;
 
@@ -689,10 +703,9 @@
           "Game Over";
 
         message.textContent =
-          "Time ran out!";
+          `${data.loser} ran out of time!`;
       }
-
-    }, 1000);
+    );
 
     function submitMove() {
 
@@ -729,13 +742,10 @@
         return;
       }
 
-      if (!timerStarted) {
-
-        socket.emit(
-          "startTimer",
-          roomCode
-        );
-      }
+      socket.emit(
+        "startTimer",
+        roomCode
+      );
 
       socket.emit(
         "submitMove",
@@ -765,4 +775,5 @@
   </script>
 
 </body>
+
 </html>

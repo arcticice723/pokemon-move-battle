@@ -15,9 +15,15 @@ const PORT =
 
 app.use(express.static(__dirname));
 
-const MAX_PLAYERS = 8;
-
 const rooms = {};
+
+function generateRoomCode() {
+
+  return Math.floor(
+    10000 +
+    Math.random() * 90000
+  ).toString();
+}
 
 io.on("connection", socket => {
 
@@ -27,20 +33,16 @@ io.on("connection", socket => {
     "createRoom",
     data => {
 
-      const roomCode =
-        data.roomCode;
+      let roomCode =
+        generateRoomCode();
 
-      if (rooms[roomCode]) {
+      while (
+        rooms[roomCode]
+      ) {
 
-        socket.emit(
-          "errorMessage",
-          "Room code already exists."
-        );
-
-        return;
+        roomCode =
+          generateRoomCode();
       }
-
-      socket.join(roomCode);
 
       rooms[roomCode] = {
 
@@ -52,16 +54,34 @@ io.on("connection", socket => {
           }
         ],
 
+        maxPlayers:
+          data.maxPlayers,
+
         currentPlayer: 0,
 
         usedMoves: [],
 
-        timerStarted: false
+        timer: 60,
+
+        timerStarted: false,
+
+        timerInterval: null,
+
+        gameStarted: false,
+
+        gameOver: false
       };
+
+      socket.join(roomCode);
+
+      socket.emit(
+        "roomCreated",
+        roomCode
+      );
 
       socket.emit(
         "playerNumber",
-        1
+        0
       );
 
       io.to(roomCode).emit(
@@ -94,13 +114,43 @@ io.on("connection", socket => {
       }
 
       if (
+        room.gameStarted
+      ) {
+
+        socket.emit(
+          "errorMessage",
+          "Game already started"
+        );
+
+        return;
+      }
+
+      if (
         room.players.length >=
-        MAX_PLAYERS
+        room.maxPlayers
       ) {
 
         socket.emit(
           "errorMessage",
           "Room is full"
+        );
+
+        return;
+      }
+
+      if (
+        room.players.some(
+          p =>
+            p.username
+              .toLowerCase() ===
+            data.username
+              .toLowerCase()
+        )
+      ) {
+
+        socket.emit(
+          "errorMessage",
+          "Username already taken"
         );
 
         return;
@@ -117,8 +167,12 @@ io.on("connection", socket => {
       );
 
       socket.emit(
+        "joinSuccess"
+      );
+
+      socket.emit(
         "playerNumber",
-        room.players.length
+        room.players.length - 1
       );
 
       io.to(
@@ -132,10 +186,24 @@ io.on("connection", socket => {
         room.players.length >= 2
       ) {
 
+        room.gameStarted =
+          true;
+
         io.to(
           data.roomCode
         ).emit(
-          "gameStart"
+          "gameStart",
+          {
+            currentPlayer:
+              room.currentPlayer,
+
+            currentUsername:
+              room.players[0]
+                .username,
+
+            timer:
+              room.timer
+          }
         );
       }
 
@@ -162,8 +230,43 @@ io.on("connection", socket => {
         true;
 
       io.to(roomCode).emit(
-        "startTimer"
+        "timerUpdate",
+        room.timer
       );
+
+      room.timerInterval =
+        setInterval(() => {
+
+          room.timer--;
+
+          io.to(roomCode).emit(
+            "timerUpdate",
+            room.timer
+          );
+
+          if (
+            room.timer <= 0
+          ) {
+
+            clearInterval(
+              room.timerInterval
+            );
+
+            room.gameOver =
+              true;
+
+            io.to(roomCode).emit(
+              "gameOver",
+              {
+                loser:
+                  room.players[
+                    room.currentPlayer
+                  ].username
+              }
+            );
+          }
+
+        }, 1000);
     }
   );
 
@@ -175,6 +278,10 @@ io.on("connection", socket => {
         rooms[data.roomCode];
 
       if (!room) return;
+
+      if (
+        room.gameOver
+      ) return;
 
       const playerIndex =
         room.players.findIndex(
@@ -200,13 +307,15 @@ io.on("connection", socket => {
         return;
       }
 
-      const move =
+      const moveLower =
         data.move
           .toLowerCase();
 
       if (
-        room.usedMoves.includes(
-          move
+        room.usedMoves.some(
+          move =>
+            move.toLowerCase() ===
+            moveLower
         )
       ) {
 
@@ -219,7 +328,7 @@ io.on("connection", socket => {
       }
 
       room.usedMoves.push(
-        move
+        data.move
       );
 
       room.currentPlayer =
@@ -227,6 +336,8 @@ io.on("connection", socket => {
           room.currentPlayer + 1
         ) %
         room.players.length;
+
+      room.timer = 60;
 
       io.to(
         data.roomCode
@@ -244,7 +355,10 @@ io.on("connection", socket => {
           currentUsername:
             room.players[
               room.currentPlayer
-            ].username
+            ].username,
+
+          timer:
+            room.timer
         }
       );
     }
@@ -300,6 +414,10 @@ io.on("connection", socket => {
             room.players.length === 0
           ) {
 
+            clearInterval(
+              room.timerInterval
+            );
+
             delete rooms[
               roomCode
             ];
@@ -319,9 +437,6 @@ io.on("connection", socket => {
             room.currentPlayer =
               0;
           }
-
-          room.timerStarted =
-            false;
 
           break;
         }
