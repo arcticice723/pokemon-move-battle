@@ -9,6 +9,13 @@ Configure these in the hosting provider's private environment-variable settings,
 - `NODE_ENV=production`
 - `SESSION_SECRET`: a long, randomly generated secret that stays stable between deployments
 - `DATABASE_URL`: a connection string for a managed, persistent PostgreSQL database
+- `SMTP_HOST`: SMTP server hostname for sending verification emails
+- `SMTP_PORT`: SMTP port (commonly `587` for STARTTLS)
+- `SMTP_USER`: SMTP login username
+- `SMTP_PASS`: SMTP login password or provider-issued app password
+- `EMAIL_FROM`: sender address authorized by the email provider
+- `PUBLIC_BASE_URL`: the canonical HTTPS site URL, e.g. `https://your-nexus-site.example` (use the actual deployed URL)
+- `SMTP_SECURE=true` only if the provider requires implicit TLS (commonly port `465`); otherwise use `false`
 
 Do not paste secrets into public issues, screenshots, source code, or chat messages. If a secret is exposed, rotate it.
 
@@ -18,11 +25,12 @@ Do not paste secrets into public issues, screenshots, source code, or chat messa
 2. Set `DATABASE_URL` in the web service environment.
 3. Confirm database backups and recovery procedures are enabled.
 4. Deploy and confirm the server can create/update its Nexus tables.
-5. Create two test accounts and verify account data, profile pictures, privacy preferences, and friend relationships survive a service restart.
+5. Configure SMTP variables and `PUBLIC_BASE_URL`; send a verification email to a real test mailbox.
+6. Create two test accounts and verify unverified accounts cannot sign in, verification links work and expire, and verified account data, profile pictures, privacy preferences, and friend relationships survive a service restart.
 6. Confirm account deletion removes the live account and associated friend records.
 7. Check backup retention and ensure the privacy policy explains it accurately.
 
-The local `accounts.json` fallback is intended for development, not durable production accounts. Friend APIs require PostgreSQL and return a service-unavailable response when it is not configured.
+The local `accounts.json` fallback is intended for development, not durable production accounts. Friend APIs require PostgreSQL and return a service-unavailable response when it is not configured. Account registration now requires persistent PostgreSQL plus configured SMTP email delivery. New accounts remain unable to sign in until the verification link is used; links expire after 24 hours.
 
 ## Deployment verification
 
