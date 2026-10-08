@@ -1,6 +1,15 @@
 const express = require("express");
 const http = require("http");
 const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
+const { promisify } = require("util");
+const scrypt = promisify(crypto.scrypt);
+let pgPool = null;
+if (process.env.DATABASE_URL) {
+  const { Pool } = require("pg");
+  pgPool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false } });
+}
 const { Server } = require("socket.io");
 
 const app = express();
@@ -9,6 +18,105 @@ const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 app.use(express.static(__dirname));
 app.get("/health", (_req, res) => res.status(200).json({ status: "ok", app: "Nexus" }));
+// Basic Nexus accounts. Set DATABASE_URL to a persistent PostgreSQL database in production.
+const ACCOUNT_FILE = path.join(__dirname, "accounts.json");
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+let accountFileQueue = Promise.resolve();
+async function initAccounts() {
+  if (pgPool) await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_accounts (id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+}
+const accountsReady = initAccounts();
+async function findAccountByLogin(login) {
+  await accountsReady;
+  if (pgPool) {
+    const r = await pgPool.query("SELECT id, username, email, password_hash, created_at FROM nexus_accounts WHERE LOWER(username)=LOWER($1) OR LOWER(email)=LOWER($1) LIMIT 1", [login]);
+    return r.rows[0] || null;
+  }
+  const data = await readLocalAccounts();
+  return data.find(a => a.username.toLowerCase() === login.toLowerCase() || a.email.toLowerCase() === login.toLowerCase()) || null;
+}
+async function readLocalAccounts() {
+  try { return JSON.parse(await fs.promises.readFile(ACCOUNT_FILE, "utf8")); }
+  catch (e) { if (e.code === "ENOENT") return []; throw e; }
+}
+async function saveLocalAccount(account) {
+  accountFileQueue = accountFileQueue.then(async () => {
+    const data = await readLocalAccounts();
+    if (data.some(a => a.username.toLowerCase() === account.username.toLowerCase() || a.email.toLowerCase() === account.email.toLowerCase())) {
+      const e = new Error("An account with that username or email already exists."); e.status = 409; throw e;
+    }
+    data.push(account);
+    await fs.promises.writeFile(ACCOUNT_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
+  });
+  return accountFileQueue;
+}
+async function createAccount(username, email, passwordHash) {
+  await accountsReady;
+  if (pgPool) {
+    try {
+      const r = await pgPool.query("INSERT INTO nexus_accounts (username,email,password_hash) VALUES ($1,$2,$3) RETURNING id,username,email,created_at", [username,email,passwordHash]);
+      return r.rows[0];
+    } catch (e) {
+      if (e.code === "23505") { const err = new Error("That username or email is already registered."); err.status = 409; throw err; }
+      throw e;
+    }
+  }
+  const account = { id: crypto.randomUUID(), username, email, password_hash: passwordHash, created_at: new Date().toISOString() };
+  await saveLocalAccount(account);
+  return account;
+}
+function publicAccount(a) { return { id: String(a.id), username: a.username, email: a.email, createdAt: a.created_at }; }
+function makeSession(a) {
+  const payload = Buffer.from(JSON.stringify({ id: String(a.id), exp: Date.now() + 7*24*60*60*1000 })).toString("base64url");
+  const sig = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  return payload + "." + sig;
+}
+function readSession(req) {
+  const token = String(req.headers.cookie || "").split(";").map(x=>x.trim()).find(x=>x.startsWith("nexus_session="))?.slice("nexus_session=".length);
+  if (!token) return null;
+  const [payload,sig] = decodeURIComponent(token).split(".");
+  if (!payload || !sig) return null;
+  const expected = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest();
+  let actual; try { actual = Buffer.from(sig, "base64url"); } catch { return null; }
+  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;
+  try { const data = JSON.parse(Buffer.from(payload, "base64url").toString()); return data.exp > Date.now() ? data : null; } catch { return null; }
+}
+async function accountFromRequest(req) {
+  const session = readSession(req); if (!session) return null;
+  await accountsReady;
+  if (pgPool) { const r = await pgPool.query("SELECT id,username,email,created_at FROM nexus_accounts WHERE id=$1", [session.id]); return r.rows[0] || null; }
+  const accounts = await readLocalAccounts(); return accounts.find(a=>String(a.id)===session.id) || null;
+}
+function setSessionCookie(res, account) {
+  res.setHeader("Set-Cookie", "nexus_session="+encodeURIComponent(makeSession(account))+"; HttpOnly; Path=/; SameSite=Lax; Max-Age=604800"+(process.env.NODE_ENV==="production" ? "; Secure" : ""));
+}
+function clearSessionCookie(res) { res.setHeader("Set-Cookie", "nexus_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0"+(process.env.NODE_ENV==="production" ? "; Secure" : "")); }
+app.use(express.json({ limit: "10kb" }));
+app.get("/account", (_req,res)=>res.sendFile(path.join(__dirname,"account.html")));
+app.get("/api/auth/me", async (req,res)=>{ try { const a=await accountFromRequest(req); if(!a)return res.status(401).json({error:"Not signed in."}); res.json({account:publicAccount(a)}); } catch(e) { console.error("Account lookup failed",e);res.status(500).json({error:"Account service unavailable."}); }});
+app.post("/api/auth/register", async (req,res)=>{
+  try {
+    const username=String(req.body.username||"").trim(), email=String(req.body.email||"").trim().toLowerCase(), password=String(req.body.password||"");
+    if(!/^[A-Za-z0-9_]{3,20}$/.test(username))return res.status(400).json({error:"Username must be 3–20 characters using letters, numbers, or underscores."});
+    if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:"Enter a valid email address."});
+    if(password.length<10||password.length>200)return res.status(400).json({error:"Password must be at least 10 characters."});
+    const salt=crypto.randomBytes(16).toString("hex"), derived=await scrypt(password,salt,64);
+    const a=await createAccount(username,email,salt+":"+derived.toString("hex"));setSessionCookie(res,a);res.status(201).json({account:publicAccount(a)});
+  } catch(e) { if(e.status)return res.status(e.status).json({error:e.message});console.error("Registration failed",e);res.status(500).json({error:"Could not create your account. Try again later."}); }
+});
+app.post("/api/auth/login", async (req,res)=>{
+  try {
+    const login=String(req.body.login||"").trim(), password=String(req.body.password||"");
+    if(!login||!password)return res.status(400).json({error:"Enter your username/email and password."});
+    const a=await findAccountByLogin(login);if(!a)return res.status(401).json({error:"Incorrect username/email or password."});
+    const [salt,hash]=String(a.password_hash).split(":");if(!salt||!hash)return res.status(500).json({error:"Account credentials need to be reset."});
+    const derived=await scrypt(password,salt,64), expected=Buffer.from(hash,"hex");
+    if(expected.length!==derived.length||!crypto.timingSafeEqual(expected,derived))return res.status(401).json({error:"Incorrect username/email or password."});
+    setSessionCookie(res,a);res.json({account:publicAccount(a)});
+  } catch(e) { console.error("Login failed",e);res.status(500).json({error:"Could not sign in. Try again later."}); }
+});
+app.post("/api/auth/logout", (_req,res)=>{clearSessionCookie(res);res.json({ok:true});});
+
 app.get("/pokemon-move-battle", (_req, res) => res.sendFile(path.join(__dirname, "pokemon.html")));
 app.get("/character-guess", (_req, res) => res.sendFile(path.join(__dirname, "character-guess.html")));
 
