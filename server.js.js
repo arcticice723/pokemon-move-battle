@@ -56,13 +56,16 @@ io.on("connection", socket => {
    socket.join(roomCode);socket.emit("roomCreated",roomCode);socket.emit("playerNumber",0);io.to(roomCode).emit("updatePlayers",rooms[roomCode].players);
  });
  socket.on("joinRoom", data => {
-   const room=rooms[String(data.roomCode||"").trim()];const username=cleanName(data.username);
-   if(!room){socket.emit("errorMessage","Room not found");return;}if(!username){socket.emit("errorMessage","Enter a username.");return;}
+   const roomCode=String(data.roomCode||"").trim();
+   const room=rooms[roomCode];const username=cleanName(data.username);
+   if(!/^\d{5}$/.test(roomCode)){socket.emit("errorMessage","Enter the 5-digit room code shown by the host.");return;}
+   if(!room){socket.emit("errorMessage","Room not found. Check the code and make sure the host is still in the room.");return;}
+   if(!username){socket.emit("errorMessage","Enter a username.");return;}
    if(room.gameStarted){socket.emit("errorMessage","Game already started");return;}
    if(room.players.length>=room.maxPlayers){socket.emit("errorMessage","Room is full");return;}
    if(room.players.some(p=>p.username.toLowerCase()===username.toLowerCase())){socket.emit("errorMessage","Username already taken");return;}
-   room.players.push({id:socket.id,username});socket.join(data.roomCode);socket.emit("joinSuccess");socket.emit("playerNumber",room.players.length-1);io.to(data.roomCode).emit("updatePlayers",room.players);
-   if(room.players.length>=2){room.gameStarted=true;io.to(data.roomCode).emit("gameStart",{currentPlayer:room.currentPlayer,currentUsername:room.players[0].username,timer:room.timer});}
+   room.players.push({id:socket.id,username});socket.join(roomCode);socket.emit("joinSuccess");socket.emit("playerNumber",room.players.length-1);io.to(roomCode).emit("updatePlayers",room.players);
+   if(room.players.length>=2){room.gameStarted=true;io.to(roomCode).emit("gameStart",{currentPlayer:room.currentPlayer,currentUsername:room.players[0].username,timer:room.timer});}
  });
  socket.on("startTimer", roomCode => {
    const room=rooms[roomCode];if(!room||room.timerStarted||room.gameOver)return;
