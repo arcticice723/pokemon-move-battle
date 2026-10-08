@@ -41,12 +41,38 @@ function assignCharacters(room) {
  const pool=filteredCharacters(room.filters);
  room.players.forEach((p,i)=>{p.character=pool[(Math.floor(Math.random()*pool.length)+i)%pool.length].name;});
 }
+function nextGuessTurn(room) {
+ if(!room.players.length)return;
+ for(let step=1;step<=room.players.length;step++){
+   const idx=(room.currentTurn+step)%room.players.length;
+   if(!room.players[idx].solved){room.currentTurn=idx;return;}
+ }
+ room.finished=true;
+}
 function sendGuessState(code) {
- const room=guessRooms[code]; if(!room)return;
+ const room=guessRooms[code];if(!room)return;
  room.players.forEach(player=>{
-   const otherCharacters=room.players.filter(p=>p.id!==player.id).map(p=>({id:p.id,username:p.username,character:p.character||"Waiting…"}));
-   io.to(player.id).emit("guessState",{players:publicPlayers(room),filters:room.filters,myCharacter:room.started?player.character:null,otherCharacters});
+   const otherCharacters=room.players.filter(p=>p.id!==player.id).map(p=>({id:p.id,username:p.username,character:p.character||"Waiting…",solved:!!p.solved}));
+   const current=room.players[room.currentTurn];
+   const pending=room.pendingQuestion;
+   const answers=pending?Object.values(pending.answers):[];
+   io.to(player.id).emit("guessState",{
+     players:publicPlayers(room),filters:room.filters,myCharacter:room.started?player.character:null,otherCharacters,
+     currentTurnId:current?.id||null,currentTurnUsername:current?.username||null,isMyTurn:!!current&&current.id===player.id&&!player.solved,
+     solved:!!player.solved,finished:!!room.finished,
+     pendingQuestion:pending?{question:pending.question,askerId:pending.askerId,askerUsername:pending.askerUsername,answers:answers.map(a=>({username:a.username,answer:a.answer})),required:room.players.filter(p=>p.id!==pending.askerId&&!p.solved).length,myAnswer:pending.answers[player.id]?.answer||null}:null
+   });
  });
+}
+function finishQuestion(code) {
+ const room=guessRooms[code];if(!room||!room.pendingQuestion)return;
+ const pending=room.pendingQuestion;
+ const eligible=room.players.filter(p=>p.id!==pending.askerId&&!p.solved);
+ if(eligible.some(p=>!pending.answers[p.id]))return;
+ io.to("guess:"+code).emit("guessQuestionResult",{askerUsername:pending.askerUsername,question:pending.question,answers:eligible.map(p=>({username:p.username,answer:pending.answers[p.id].answer}))});
+ room.pendingQuestion=null;
+ nextGuessTurn(room);
+ sendGuessState(code);
 }
 io.on("connection", socket => {
  socket.on("createRoom", data => {
@@ -84,7 +110,7 @@ io.on("connection", socket => {
  socket.on("createGuessRoom", data => {
    const username=cleanName(data.username);if(!username){socket.emit("errorMessage","Enter a name first.");return;}
    const roomCode=generateRoomCode(guessRooms);const filters={genre:String(data.genre||"all"),franchise:String(data.franchise||"all")};
-   guessRooms[roomCode]={roomCode,players:[{id:socket.id,username,character:null}],maxPlayers:Math.max(2,Math.min(8,Number(data.maxPlayers)||2)),filters,started:false,guessed:new Set()};
+   guessRooms[roomCode]={roomCode,players:[{id:socket.id,username,character:null,solved:false}],maxPlayers:Math.max(2,Math.min(8,Number(data.maxPlayers)||2)),filters,started:false,finished:false,currentTurn:0,pendingQuestion:null,guessed:new Set()};
    socket.join("guess:"+roomCode);socket.emit("guessRoomCreated",{roomCode,players:publicPlayers(guessRooms[roomCode]),filters,myCharacter:null});sendGuessState(roomCode);
  });
  socket.on("joinGuessRoom", data => {
@@ -93,10 +119,35 @@ io.on("connection", socket => {
    if(room.started){socket.emit("errorMessage","This round has already started.");return;}
    if(room.players.length>=room.maxPlayers){socket.emit("errorMessage","Room is full.");return;}
    if(room.players.some(p=>p.username.toLowerCase()===username.toLowerCase())){socket.emit("errorMessage","That name is already in the room.");return;}
-   room.players.push({id:socket.id,username,character:null});socket.join("guess:"+roomCode);
+   room.players.push({id:socket.id,username,character:null,solved:false});socket.join("guess:"+roomCode);
    if(room.players.length>=2){room.started=true;assignCharacters(room);}
    socket.emit("guessJoinSuccess",{roomCode,players:publicPlayers(room),filters:room.filters,myCharacter:room.started?room.players.find(p=>p.id===socket.id).character:null});sendGuessState(roomCode);
    io.to("guess:"+roomCode).emit("guessChat",{username:"Nexus",message:room.started?"Round started! Your character is assigned. Ask questions and make a guess.":"Waiting for another player."});
+ });
+ socket.on("askGuessQuestion", data => {
+   const code=String(data.roomCode||"");const room=guessRooms[code];
+   if(!room||!room.started||room.finished)return;
+   const player=room.players.find(p=>p.id===socket.id);
+   if(!player||player.solved)return;
+   if(room.pendingQuestion){socket.emit("errorMessage","Finish answering the current question first.");return;}
+   if(room.players[room.currentTurn]?.id!==socket.id){socket.emit("errorMessage","Wait for your turn to ask a question.");return;}
+   const question=String(data.question||"").trim().slice(0,180);
+   if(!question||question.length<3){socket.emit("errorMessage","Type a question first.");return;}
+   room.pendingQuestion={askerId:socket.id,askerUsername:player.username,question,answers:Object.create(null)};
+   io.to("guess:"+code).emit("guessQuestion",{askerUsername:player.username,question});
+   sendGuessState(code);
+   if(room.players.filter(p=>p.id!==socket.id&&!p.solved).length===0)finishQuestion(code);
+ });
+ socket.on("answerGuessQuestion", data => {
+   const code=String(data.roomCode||"");const room=guessRooms[code];if(!room||!room.pendingQuestion||room.finished)return;
+   const player=room.players.find(p=>p.id===socket.id);if(!player||player.solved||player.id===room.pendingQuestion.askerId)return;
+   if(room.pendingQuestion.answers[socket.id]){socket.emit("errorMessage","You already answered this question.");return;}
+   const answer=String(data.answer||"");
+   if(!["Yes","No","Not sure"].includes(answer)){socket.emit("errorMessage","Choose Yes, No, or Not sure.");return;}
+   room.pendingQuestion.answers[socket.id]={username:player.username,answer};
+   io.to("guess:"+code).emit("guessAnswerProgress",{count:Object.keys(room.pendingQuestion.answers).length,required:room.players.filter(p=>p.id!==room.pendingQuestion.askerId&&!p.solved).length});
+   finishQuestion(code);
+   sendGuessState(code);
  });
  socket.on("guessChat", data => {
    const room=guessRooms[data.roomCode];if(!room||!room.players.some(p=>p.id===socket.id))return;
@@ -104,15 +155,26 @@ io.on("connection", socket => {
    const player=room.players.find(p=>p.id===socket.id);io.to("guess:"+data.roomCode).emit("guessChat",{username:player.username,message});
  });
  socket.on("guessCharacter", data => {
-   const room=guessRooms[data.roomCode];if(!room||!room.started)return;
-   const player=room.players.find(p=>p.id===socket.id);if(!player)return;
-   const correct=player.character.toLowerCase()===String(data.guess||"").trim().toLowerCase();
+   const code=String(data.roomCode||"");const room=guessRooms[code];if(!room||!room.started||room.finished)return;
+   const player=room.players.find(p=>p.id===socket.id);if(!player||player.solved)return;
+   if(room.pendingQuestion){socket.emit("errorMessage","Wait until the current question is answered.");return;}
+   if(room.players[room.currentTurn]?.id!==socket.id){socket.emit("errorMessage","Wait for your turn to guess.");return;}
+   const guess=String(data.guess||"").trim();if(!guess)return;
+   const correct=player.character.toLowerCase()===guess.toLowerCase();
    socket.emit("guessResult",{correct,character:correct?player.character:undefined});
-   if(correct)io.to("guess:"+data.roomCode).emit("guessWinner",{username:player.username,character:player.character});
+   if(correct){
+     player.solved=true;
+     io.to("guess:"+code).emit("guessWinner",{username:player.username,character:player.character});
+     if(room.players.every(p=>p.solved)){room.finished=true;io.to("guess:"+code).emit("guessGameOver",{message:"Everyone guessed their character!"});}
+   }else{
+     io.to("guess:"+code).emit("guessChat",{username:"Nexus",message:player.username+" made an incorrect guess."});
+   }
+   if(!room.finished)nextGuessTurn(room);
+   sendGuessState(code);
  });
  socket.on("disconnect", () => {
    for(const code of Object.keys(rooms)){const room=rooms[code];const i=room.players.findIndex(p=>p.id===socket.id);if(i<0)continue;const name=room.players[i].username;room.players.splice(i,1);io.to(code).emit("errorMessage",name+" disconnected.");io.to(code).emit("updatePlayers",room.players);if(room.currentPlayer>=room.players.length)room.currentPlayer=0;endRoomIfEmpty(code,rooms);}
-   for(const code of Object.keys(guessRooms)){const room=guessRooms[code];const i=room.players.findIndex(p=>p.id===socket.id);if(i<0)continue;const name=room.players[i].username;room.players.splice(i,1);io.to("guess:"+code).emit("guessChat",{username:"Nexus",message:name+" disconnected."});if(!room.players.length){delete guessRooms[code];continue;}sendGuessState(code);}
+   for(const code of Object.keys(guessRooms)){const room=guessRooms[code];const i=room.players.findIndex(p=>p.id===socket.id);if(i<0)continue;const name=room.players[i].username;room.players.splice(i,1);if(i<room.currentTurn)room.currentTurn--;if(room.currentTurn>=room.players.length)room.currentTurn=0;if(room.pendingQuestion){delete room.pendingQuestion.answers[socket.id];if(room.pendingQuestion.askerId===socket.id){room.pendingQuestion=null;io.to("guess:"+code).emit("guessChat",{username:"Nexus",message:"The question was cancelled because its asker disconnected."});}else finishQuestion(code);}io.to("guess:"+code).emit("guessChat",{username:"Nexus",message:name+" disconnected."});if(!room.players.length){delete guessRooms[code];continue;}if(room.players.filter(p=>!p.solved).length<=1&&room.started){room.finished=true;io.to("guess:"+code).emit("guessGameOver",{message:"The round has ended because only one player remains."});}sendGuessState(code);}
  });
 });
 server.listen(PORT,()=>console.log("Nexus server listening on port "+PORT));
