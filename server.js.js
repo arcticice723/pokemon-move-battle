@@ -16,7 +16,14 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 const PORT = process.env.PORT || 3000;
-app.use(express.static(__dirname));
+// Never expose private account storage or server/configuration files through static hosting.
+app.use((req, res, next) => {
+  const blockedFiles = new Set(["accounts.json", "server.js.js", "package.json", "render.yaml", "readme.md", ".gitignore"]);
+  const requestedFile = path.posix.basename(req.path).toLowerCase();
+  if (blockedFiles.has(requestedFile)) return res.sendStatus(404);
+  next();
+});
+app.use(express.static(__dirname, { dotfiles: "deny", index: false }));
 app.get("/health", (_req, res) => res.status(200).json({ status: "ok", app: "Nexus" }));
 // Basic Nexus accounts. Set DATABASE_URL to a persistent PostgreSQL database in production.
 const ACCOUNT_FILE = path.join(__dirname, "accounts.json");
