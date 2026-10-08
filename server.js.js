@@ -125,7 +125,7 @@ app.post("/api/auth/login", async (req,res)=>{
     setSessionCookie(res,a);res.json({account:publicAccount(a)});
   } catch(e) { console.error("Login failed",e);res.status(500).json({error:"Could not sign in. Try again later."}); }
 });
-app.put("/api/account/avatar", async (req,res)=>{
+app.post("/api/account/avatar", async (req,res)=>{
   try {
     const account=await accountFromRequest(req);
     if(!account)return res.status(401).json({error:"Sign in to change your profile picture."});
