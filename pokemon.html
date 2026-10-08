@@ -465,7 +465,7 @@
       if (!username) { message.textContent = "Enter a username first."; document.getElementById("usernameInput").focus(); return; }
 
       roomCode = document.getElementById("roomJoinInput").value.trim();
-      if (!/^\\d{5}$/.test(roomCode)) {
+      if (!/^\d{5}$/.test(roomCode)) {
         message.textContent = "Enter the 5-digit room code shown by the host.";
         document.getElementById("roomJoinInput").focus();
         return;
