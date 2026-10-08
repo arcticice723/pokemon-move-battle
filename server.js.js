@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { promisify } = require("util");
+const nodemailer = require("nodemailer");
 const scrypt = promisify(crypto.scrypt);
 let pgPool = null;
 if (process.env.DATABASE_URL) {
@@ -56,6 +57,8 @@ async function initAccounts() {
     await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_accounts (id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
     await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS avatar_data TEXT");
     await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS hide_online BOOLEAN NOT NULL DEFAULT FALSE");
+    await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE");
+    await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_email_verifications (account_id BIGINT PRIMARY KEY REFERENCES nexus_accounts(id) ON DELETE CASCADE, token_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
     await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_friendships (id BIGSERIAL PRIMARY KEY, requester_id BIGINT NOT NULL REFERENCES nexus_accounts(id) ON DELETE CASCADE, addressee_id BIGINT NOT NULL REFERENCES nexus_accounts(id) ON DELETE CASCADE, status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted')), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (requester_id <> addressee_id), UNIQUE (requester_id, addressee_id))");
   }
 }
@@ -63,7 +66,7 @@ const accountsReady = initAccounts();
 async function findAccountByLogin(login) {
   await accountsReady;
   if (pgPool) {
-    const r = await pgPool.query("SELECT id, username, email, password_hash, created_at FROM nexus_accounts WHERE LOWER(username)=LOWER($1) OR LOWER(email)=LOWER($1) LIMIT 1", [login]);
+    const r = await pgPool.query("SELECT id, username, email, password_hash, created_at, email_verified FROM nexus_accounts WHERE LOWER(username)=LOWER($1) OR LOWER(email)=LOWER($1) LIMIT 1", [login]);
     return r.rows[0] || null;
   }
   const data = await readLocalAccounts();
@@ -88,7 +91,7 @@ async function createAccount(username, email, passwordHash) {
   await accountsReady;
   if (pgPool) {
     try {
-      const r = await pgPool.query("INSERT INTO nexus_accounts (username,email,password_hash) VALUES ($1,$2,$3) RETURNING id,username,email,created_at", [username,email,passwordHash]);
+      const r = await pgPool.query("INSERT INTO nexus_accounts (username,email,password_hash,email_verified) VALUES ($1,$2,$3,FALSE) RETURNING id,username,email,created_at,email_verified", [username,email,passwordHash]);
       return r.rows[0];
     } catch (e) {
       if (e.code === "23505") { const err = new Error("That username or email is already registered."); err.status = 409; throw err; }
@@ -99,7 +102,7 @@ async function createAccount(username, email, passwordHash) {
   await saveLocalAccount(account);
   return account;
 }
-function publicAccount(a) { return { id: String(a.id), username: a.username, email: a.email, createdAt: a.created_at, avatarData: a.avatar_data || a.avatarData || null, hideOnline: Boolean(a.hide_online ?? a.hideOnline ?? false) }; }
+function publicAccount(a) { return { id: String(a.id), username: a.username, email: a.email, createdAt: a.created_at, avatarData: a.avatar_data || a.avatarData || null, hideOnline: Boolean(a.hide_online ?? a.hideOnline ?? false), emailVerified: Boolean(a.email_verified ?? a.emailVerified ?? true) }; }
 function makeSession(a) {
   const payload = Buffer.from(JSON.stringify({ id: String(a.id), exp: Date.now() + 7*24*60*60*1000 })).toString("base64url");
   const sig = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
@@ -118,7 +121,7 @@ function readSession(req) {
 async function accountFromRequest(req) {
   const session = readSession(req); if (!session) return null;
   await accountsReady;
-  if (pgPool) { const r = await pgPool.query("SELECT id,username,email,created_at,avatar_data,hide_online FROM nexus_accounts WHERE id=$1", [session.id]); return r.rows[0] || null; }
+  if (pgPool) { const r = await pgPool.query("SELECT id,username,email,created_at,avatar_data,hide_online,email_verified FROM nexus_accounts WHERE id=$1", [session.id]); return r.rows[0] || null; }
   const accounts = await readLocalAccounts(); return accounts.find(a=>String(a.id)===session.id) || null;
 }
 function setSessionCookie(res, account) {
@@ -128,24 +131,72 @@ function clearSessionCookie(res) { res.setHeader("Set-Cookie", "nexus_session=; 
 app.use(express.json({ limit: "1.5mb" }));
 app.get("/account", (_req,res)=>res.sendFile(path.join(__dirname,"account.html")));
 app.get("/api/auth/me", async (req,res)=>{ try { const a=await accountFromRequest(req); if(!a)return res.status(401).json({error:"Not signed in."}); res.json({account:publicAccount(a)}); } catch(e) { console.error("Account lookup failed",e);res.status(500).json({error:"Account service unavailable."}); }});
+function emailTransport() {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.EMAIL_FROM) return null;
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || "false") === "true",
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+  });
+}
+function publicBaseUrl(req) {
+  const configured = String(process.env.PUBLIC_BASE_URL || "").trim();
+  if (configured) return configured.replace(/\/$/, "");
+  return req.protocol + "://" + req.get("host");
+}
 app.post("/api/auth/register", registerRateLimit, async (req,res)=>{
   try {
+    if (process.env.NODE_ENV === "production" && !pgPool)
+      return res.status(503).json({error:"Account registration is temporarily unavailable because persistent account storage is not configured. Please try again later."});
+    const transport = emailTransport();
+    if (!transport) return res.status(503).json({error:"Email verification is not configured yet. Account creation is temporarily unavailable."});
     const username=String(req.body.username||"").trim(), email=String(req.body.email||"").trim().toLowerCase(), password=String(req.body.password||"");
     if(!/^[A-Za-z0-9_]{3,20}$/.test(username))return res.status(400).json({error:"Username must be 3–20 characters using letters, numbers, or underscores."});
     if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:"Enter a valid email address."});
     if(password.length<10||password.length>200)return res.status(400).json({error:"Password must be at least 10 characters."});
+    if (!pgPool) return res.status(503).json({error:"Email verification requires persistent database storage. Configure DATABASE_URL before creating accounts."});
     const salt=crypto.randomBytes(16).toString("hex"), derived=await scrypt(password,salt,64);
-    const a=await createAccount(username,email,salt+":"+derived.toString("hex"));setSessionCookie(res,a);res.status(201).json({account:publicAccount(a)});
-  } catch(e) { if(e.status)return res.status(e.status).json({error:e.message});console.error("Registration failed",e);res.status(500).json({error:"Could not create your account. Try again later."}); }
+    const a=await createAccount(username,email,salt+":"+derived.toString("hex"));
+    const token=crypto.randomBytes(32).toString("base64url");
+    const tokenHash=crypto.createHash("sha256").update(token).digest("hex");
+    await pgPool.query("INSERT INTO nexus_email_verifications (account_id,token_hash,expires_at) VALUES ($1,$2,NOW()+INTERVAL '24 hours') ON CONFLICT (account_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at,created_at=NOW()",[a.id,tokenHash]);
+    const verifyUrl=publicBaseUrl(req)+"/account?verify="+encodeURIComponent(token);
+    try {
+      await transport.sendMail({from:process.env.EMAIL_FROM,to:email,subject:"Verify your Nexus account",text:"Verify your Nexus account using this link within 24 hours:\n\n"+verifyUrl+"\n\nIf you did not create this account, you can ignore this email.",html:'<p>Verify your Nexus account within 24 hours:</p><p><a href="'+verifyUrl+'">Verify email address</a></p><p>If you did not create this account, you can ignore this email.</p>'});
+    } catch(mailError) {
+      await pgPool.query("DELETE FROM nexus_accounts WHERE id=$1",[a.id]);
+      throw mailError;
+    }
+    res.status(201).json({verificationRequired:true,message:"Account created. Check your email and open the verification link before signing in."});
+  } catch(e) { if(e.status)return res.status(e.status).json({error:e.message}); if(e.code==="23505")return res.status(409).json({error:"That username or email is already registered."});console.error("Registration failed",e);res.status(500).json({error:"Could not create your account. Check the email address or try again later."}); }
+});
+app.post("/api/auth/verify-email", async (req,res)=>{
+  try {
+    const token=String(req.body.token||"").trim();
+    if(!token||token.length>200)return res.status(400).json({error:"Verification link is invalid or expired."});
+    if(!pgPool)return res.status(503).json({error:"Email verification is temporarily unavailable."});
+    await accountsReady;
+    const hash=crypto.createHash("sha256").update(token).digest("hex");
+    const result=await pgPool.query("SELECT account_id FROM nexus_email_verifications WHERE token_hash=$1 AND expires_at>NOW() LIMIT 1",[hash]);
+    if(!result.rows[0])return res.status(400).json({error:"Verification link is invalid or expired. Create a new account if needed."});
+    const accountId=result.rows[0].account_id;
+    await pgPool.query("UPDATE nexus_accounts SET email_verified=TRUE WHERE id=$1",[accountId]);
+    await pgPool.query("DELETE FROM nexus_email_verifications WHERE account_id=$1",[accountId]);
+    res.json({ok:true,message:"Email verified. You can now sign in."});
+  } catch(e){console.error("Email verification failed",e);res.status(500).json({error:"Could not verify your email right now."});}
 });
 app.post("/api/auth/login", loginRateLimit, async (req,res)=>{
   try {
+    if (process.env.NODE_ENV === "production" && !pgPool)
+      return res.status(503).json({error:"Account storage is unavailable because persistent database storage is not configured."});
     const login=String(req.body.login||"").trim(), password=String(req.body.password||"");
     if(!login||!password)return res.status(400).json({error:"Enter your username/email and password."});
     const a=await findAccountByLogin(login);if(!a)return res.status(401).json({error:"Incorrect username/email or password."});
     const [salt,hash]=String(a.password_hash).split(":");if(!salt||!hash)return res.status(500).json({error:"Account credentials need to be reset."});
     const derived=await scrypt(password,salt,64), expected=Buffer.from(hash,"hex");
     if(expected.length!==derived.length||!crypto.timingSafeEqual(expected,derived))return res.status(401).json({error:"Incorrect username/email or password."});
+    if (pgPool && !a.email_verified) return res.status(403).json({error:"Verify your email address before signing in. Check your inbox for the Nexus verification link."});
     setSessionCookie(res,a);res.json({account:publicAccount(a)});
   } catch(e) { console.error("Login failed",e);res.status(500).json({error:"Could not sign in. Try again later."}); }
 });
