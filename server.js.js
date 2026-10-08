@@ -58,7 +58,7 @@ function sendGuessState(code) {
    const answers=pending?Object.values(pending.answers):[];
    io.to(player.id).emit("guessState",{
      players:publicPlayers(room),filters:room.filters,myCharacter:room.started?player.character:null,otherCharacters,
-     currentTurnId:current?.id||null,currentTurnUsername:current?.username||null,isMyTurn:!!current&&current.id===player.id&&!player.solved,
+     currentTurnId:current?.id||null,currentTurnUsername:room.started?current?.username||null:null,isMyTurn:room.started&&!!current&&current.id===player.id&&!player.solved,
      solved:!!player.solved,finished:!!room.finished,
      pendingQuestion:pending?{question:pending.question,askerId:pending.askerId,askerUsername:pending.askerUsername,answers:answers.map(a=>({username:a.username,answer:a.answer})),required:room.players.filter(p=>p.id!==pending.askerId&&!p.solved).length,myAnswer:pending.answers[player.id]?.answer||null}:null
    });
