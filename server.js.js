@@ -4,7 +4,6 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { promisify } = require("util");
-const nodemailer = require("nodemailer");
 const scrypt = promisify(crypto.scrypt);
 let pgPool = null;
 if (process.env.DATABASE_URL) {
@@ -131,14 +130,31 @@ function clearSessionCookie(res) { res.setHeader("Set-Cookie", "nexus_session=; 
 app.use(express.json({ limit: "1.5mb" }));
 app.get("/account", (_req,res)=>res.sendFile(path.join(__dirname,"account.html")));
 app.get("/api/auth/me", async (req,res)=>{ try { const a=await accountFromRequest(req); if(!a)return res.status(401).json({error:"Not signed in."}); res.json({account:publicAccount(a)}); } catch(e) { console.error("Account lookup failed",e);res.status(500).json({error:"Account service unavailable."}); }});
-function emailTransport() {
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.EMAIL_FROM) return null;
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: String(process.env.SMTP_SECURE || "false") === "true",
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+async function sendVerificationEmail({ to, verifyUrl }) {
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    const error = new Error("Email verification is not configured yet. Set RESEND_API_KEY and EMAIL_FROM.");
+    error.code = "EMAIL_NOT_CONFIGURED";
+    throw error;
+  }
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + process.env.RESEND_API_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: process.env.EMAIL_FROM,
+      to: [to],
+      subject: "Verify your Nexus account",
+      text: "Verify your Nexus account using this link within 24 hours:\n\n" + verifyUrl + "\n\nIf you did not create this account, you can ignore this email.",
+      html: '<p>Verify your Nexus account within 24 hours:</p><p><a href="' + verifyUrl + '">Verify email address</a></p><p>If you did not create this account, you can ignore this email.</p>'
+    })
   });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    console.error("Email provider rejected verification email:", response.status, detail.slice(0, 500));
+    throw new Error("The email provider could not send the verification email.");
+  }
 }
 function publicBaseUrl(req) {
   const configured = String(process.env.PUBLIC_BASE_URL || "").trim();
@@ -149,8 +165,8 @@ app.post("/api/auth/register", registerRateLimit, async (req,res)=>{
   try {
     if (process.env.NODE_ENV === "production" && !pgPool)
       return res.status(503).json({error:"Account registration is temporarily unavailable because persistent account storage is not configured. Please try again later."});
-    const transport = emailTransport();
-    if (!transport) return res.status(503).json({error:"Email verification is not configured yet. Account creation is temporarily unavailable."});
+    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM)
+      return res.status(503).json({error:"Email verification is not configured yet. Set RESEND_API_KEY and EMAIL_FROM in the hosting environment."});
     const username=String(req.body.username||"").trim(), email=String(req.body.email||"").trim().toLowerCase(), password=String(req.body.password||"");
     if(!/^[A-Za-z0-9_]{3,20}$/.test(username))return res.status(400).json({error:"Username must be 3–20 characters using letters, numbers, or underscores."});
     if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:"Enter a valid email address."});
@@ -163,7 +179,7 @@ app.post("/api/auth/register", registerRateLimit, async (req,res)=>{
     await pgPool.query("INSERT INTO nexus_email_verifications (account_id,token_hash,expires_at) VALUES ($1,$2,NOW()+INTERVAL '24 hours') ON CONFLICT (account_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at,created_at=NOW()",[a.id,tokenHash]);
     const verifyUrl=publicBaseUrl(req)+"/account?verify="+encodeURIComponent(token);
     try {
-      await transport.sendMail({from:process.env.EMAIL_FROM,to:email,subject:"Verify your Nexus account",text:"Verify your Nexus account using this link within 24 hours:\n\n"+verifyUrl+"\n\nIf you did not create this account, you can ignore this email.",html:'<p>Verify your Nexus account within 24 hours:</p><p><a href="'+verifyUrl+'">Verify email address</a></p><p>If you did not create this account, you can ignore this email.</p>'});
+      await sendVerificationEmail({to:email,verifyUrl});
     } catch(mailError) {
       await pgPool.query("DELETE FROM nexus_accounts WHERE id=$1",[a.id]);
       throw mailError;
