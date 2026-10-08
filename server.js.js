@@ -312,7 +312,7 @@ const characters = [
 ];
 function generateRoomCode(pool) { let code; do { code=String(Math.floor(10000+Math.random()*90000)); } while(pool[code]); return code; }
 function cleanName(value) { return String(value || "").trim().slice(0,20); }
-function publicPlayers(room) { return room.players.map(p=>({id:p.id,username:p.username})); }
+function publicPlayers(room) { return room.players.map(p=>({id:p.id,username:p.username,avatarData:p.avatarData||null,accountId:p.accountId||null})); }
 function clearRoomTimer(room) { if(room.timerInterval) clearInterval(room.timerInterval); }
 function endRoomIfEmpty(code, pool) { const room=pool[code]; if(room && room.players.length===0){clearRoomTimer(room);delete pool[code];} }
 function filteredCharacters(filters) {
@@ -356,31 +356,36 @@ function finishQuestion(code) {
  nextGuessTurn(room);
  sendGuessState(code);
 }
-io.on("connection", async socket => {
-   try {
-     const signedInAccount = await accountFromRequest({headers:{cookie:socket.handshake.headers.cookie||""}});
-     if (signedInAccount) {
-       const accountId=String(signedInAccount.id);
-       socket.data.accountId=accountId;
-       onlineAccountSockets.set(accountId,(onlineAccountSockets.get(accountId)||0)+1);
-     }
-   } catch (e) { console.error("Socket account lookup failed",e); }
+io.use(async (socket, next) => {
+  try {
+    const account = await accountFromRequest({headers:{cookie:socket.handshake.headers.cookie||""}});
+    if (account) {
+      socket.data.accountId = String(account.id);
+      socket.data.accountUsername = account.username;
+      socket.data.avatarData = account.avatar_data || account.avatarData || null;
+      socket.data.hideOnline = Boolean(account.hide_online ?? account.hideOnline ?? false);
+    }
+  } catch (e) { console.error("Socket account lookup failed",e); }
+  next();
+});
+io.on("connection", socket => {
+ if(socket.data.accountId){const id=socket.data.accountId;onlineAccountSockets.set(id,(onlineAccountSockets.get(id)||0)+1);}
  socket.on("createRoom", data => {
-   const username=cleanName(data.username); if(!username){socket.emit("errorMessage","Enter a username.");return;} const resumeToken=String(data.resumeToken||""); if(!resumeToken){socket.emit("errorMessage","Session token missing; refresh and try again.");return;}
+   const username=cleanName(socket.data.accountUsername || data.username); if(!username){socket.emit("errorMessage","Enter a username.");return;} const resumeToken=String(data.resumeToken||""); if(!resumeToken){socket.emit("errorMessage","Session token missing; refresh and try again.");return;}
    const roomCode=generateRoomCode(rooms);
-   rooms[roomCode]={players:[{id:socket.id,username,resumeToken,disconnectTimer:null}],maxPlayers:Math.max(2,Math.min(8,Number(data.maxPlayers)||2)),currentPlayer:0,usedMoves:[],timer:60,timerStarted:false,timerInterval:null,gameStarted:false,gameOver:false};
+   rooms[roomCode]={players:[{id:socket.id,username,resumeToken,accountId:socket.data.accountId||null,avatarData:socket.data.avatarData||null,disconnectTimer:null}],maxPlayers:Math.max(2,Math.min(8,Number(data.maxPlayers)||2)),currentPlayer:0,usedMoves:[],timer:60,timerStarted:false,timerInterval:null,gameStarted:false,gameOver:false};
    socket.join(roomCode);socket.emit("roomCreated",roomCode);socket.emit("playerNumber",0);io.to(roomCode).emit("updatePlayers",rooms[roomCode].players);
  });
  socket.on("joinRoom", data => {
    const roomCode=String(data.roomCode||"").trim();
-   const room=rooms[roomCode];const username=cleanName(data.username);
+   const room=rooms[roomCode];const username=cleanName(socket.data.accountUsername || data.username);
    if(!/^\d{5}$/.test(roomCode)){socket.emit("errorMessage","Enter the 5-digit room code shown by the host.");return;}
    if(!room){socket.emit("errorMessage","Room not found. Check the code and make sure the host is still in the room.");return;}
    if(!username){socket.emit("errorMessage","Enter a username.");return;}
    if(room.gameStarted){socket.emit("errorMessage","Game already started");return;}
    if(room.players.length>=room.maxPlayers){socket.emit("errorMessage","Room is full");return;}
    if(room.players.some(p=>p.username.toLowerCase()===username.toLowerCase())){socket.emit("errorMessage","Username already taken");return;}
-   room.players.push({id:socket.id,username,resumeToken:String(data.resumeToken||""),disconnectTimer:null});socket.join(roomCode);socket.emit("joinSuccess");socket.emit("playerNumber",room.players.length-1);io.to(roomCode).emit("updatePlayers",room.players);
+   room.players.push({id:socket.id,username,resumeToken:String(data.resumeToken||""),accountId:socket.data.accountId||null,avatarData:socket.data.avatarData||null,disconnectTimer:null});socket.join(roomCode);socket.emit("joinSuccess");socket.emit("playerNumber",room.players.length-1);io.to(roomCode).emit("updatePlayers",room.players);
    if(room.players.length>=2){room.gameStarted=true;io.to(roomCode).emit("gameStart",{currentPlayer:room.currentPlayer,currentUsername:room.players[0].username,timer:room.timer});}
  });
  socket.on("resumeRoom", data => {
@@ -388,13 +393,13 @@ io.on("connection", async socket => {
    if(!/^\\d{5}$/.test(code)||!token)return;
    if(data.game==="pokemon"){
      const room=rooms[code];if(!room)return;const player=room.players.find(p=>p.resumeToken===token);if(!player)return;
-     if(player.disconnectTimer)clearTimeout(player.disconnectTimer);player.disconnectTimer=null;player.id=socket.id;socket.join(code);
+     if(player.disconnectTimer)clearTimeout(player.disconnectTimer);player.disconnectTimer=null;player.id=socket.id;if(socket.data.accountId){player.accountId=socket.data.accountId;player.avatarData=socket.data.avatarData||null;}socket.join(code);
      socket.emit("roomResumed",{game:"pokemon",roomCode:code,username:player.username,playerNumber:room.players.indexOf(player),players:publicPlayers(room),currentPlayer:room.currentPlayer,usedMoves:room.usedMoves,timer:room.timer,timerStarted:room.timerStarted,gameStarted:room.gameStarted,gameOver:room.gameOver});
      io.to(code).emit("updatePlayers",room.players);
      if(room.gameStarted)socket.emit("gameStart",{currentPlayer:room.currentPlayer,currentUsername:room.players[room.currentPlayer]?.username||"",timer:room.timer});
    } else if(data.game==="character"){
      const room=guessRooms[code];if(!room)return;const player=room.players.find(p=>p.resumeToken===token);if(!player)return;
-     const oldId=player.id;if(player.disconnectTimer)clearTimeout(player.disconnectTimer);player.disconnectTimer=null;player.id=socket.id;
+     const oldId=player.id;if(player.disconnectTimer)clearTimeout(player.disconnectTimer);player.disconnectTimer=null;player.id=socket.id;if(socket.data.accountId){player.accountId=socket.data.accountId;player.avatarData=socket.data.avatarData||null;}
      if(room.pendingQuestion){if(room.pendingQuestion.askerId===oldId)room.pendingQuestion.askerId=socket.id;if(room.pendingQuestion.answers[oldId]){room.pendingQuestion.answers[socket.id]=room.pendingQuestion.answers[oldId];delete room.pendingQuestion.answers[oldId];}}
      socket.join("guess:"+code);socket.emit("guessJoinSuccess",{roomCode:code,players:publicPlayers(room),filters:room.filters,myCharacter:room.started?player.character:null});sendGuessState(code);
    }
@@ -414,18 +419,18 @@ io.on("connection", async socket => {
    io.to(data.roomCode).emit("moveAccepted",{move,usedMoves:room.usedMoves,currentPlayer:room.currentPlayer,currentUsername:room.players[room.currentPlayer].username,timer:room.timer});
  });
  socket.on("createGuessRoom", data => {
-   const username=cleanName(data.username);if(!username){socket.emit("errorMessage","Enter a name first.");return;} const resumeToken=String(data.resumeToken||"");if(!resumeToken){socket.emit("errorMessage","Session token missing; refresh and try again.");return;}
+   const username=cleanName(socket.data.accountUsername || data.username);if(!username){socket.emit("errorMessage","Enter a name first.");return;} const resumeToken=String(data.resumeToken||"");if(!resumeToken){socket.emit("errorMessage","Session token missing; refresh and try again.");return;}
    const roomCode=generateRoomCode(guessRooms);const filters={genre:String(data.genre||"all"),franchise:String(data.franchise||"all")};
-   guessRooms[roomCode]={roomCode,players:[{id:socket.id,username,resumeToken,disconnectTimer:null,character:null,solved:false}],maxPlayers:Math.max(2,Math.min(8,Number(data.maxPlayers)||2)),filters,started:false,finished:false,currentTurn:0,pendingQuestion:null,guessed:new Set()};
+   guessRooms[roomCode]={roomCode,players:[{id:socket.id,username,resumeToken,accountId:socket.data.accountId||null,avatarData:socket.data.avatarData||null,disconnectTimer:null,character:null,solved:false}],maxPlayers:Math.max(2,Math.min(8,Number(data.maxPlayers)||2)),filters,started:false,finished:false,currentTurn:0,pendingQuestion:null,guessed:new Set()};
    socket.join("guess:"+roomCode);socket.emit("guessRoomCreated",{roomCode,players:publicPlayers(guessRooms[roomCode]),filters,myCharacter:null});sendGuessState(roomCode);
  });
  socket.on("joinGuessRoom", data => {
-   const roomCode=String(data.roomCode||"").trim().toUpperCase();const room=guessRooms[roomCode];const username=cleanName(data.username);
+   const roomCode=String(data.roomCode||"").trim().toUpperCase();const room=guessRooms[roomCode];const username=cleanName(socket.data.accountUsername || data.username);
    if(!/^\d{5}$/.test(roomCode)){socket.emit("errorMessage","Enter the 5-digit room code shown by the host.");return;}if(!room){socket.emit("errorMessage","Room not found. Check the code and make sure the host is still in the room.");return;}if(!username){socket.emit("errorMessage","Enter a name first.");return;}
    if(room.started){socket.emit("errorMessage","This round has already started.");return;}
    if(room.players.length>=room.maxPlayers){socket.emit("errorMessage","Room is full.");return;}
    if(room.players.some(p=>p.username.toLowerCase()===username.toLowerCase())){socket.emit("errorMessage","That name is already in the room.");return;}
-   room.players.push({id:socket.id,username,resumeToken:String(data.resumeToken||""),disconnectTimer:null,character:null,solved:false});socket.join("guess:"+roomCode);
+   room.players.push({id:socket.id,username,resumeToken:String(data.resumeToken||""),accountId:socket.data.accountId||null,avatarData:socket.data.avatarData||null,disconnectTimer:null,character:null,solved:false});socket.join("guess:"+roomCode);
    if(room.players.length>=2){room.started=true;assignCharacters(room);}
    socket.emit("guessJoinSuccess",{roomCode,players:publicPlayers(room),filters:room.filters,myCharacter:room.started?room.players.find(p=>p.id===socket.id).character:null});sendGuessState(roomCode);
    io.to("guess:"+roomCode).emit("guessChat",{username:"Nexus",message:room.started?"Round started! Your character is assigned. Ask questions and make a guess.":"Waiting for another player."});
