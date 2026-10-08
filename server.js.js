@@ -239,7 +239,7 @@ app.get("/api/friends", async (req,res)=>{
       "SELECT f.id,f.status,f.requester_id,f.addressee_id,f.created_at,CASE WHEN f.requester_id=$1 THEN a2.id ELSE a1.id END AS other_id,CASE WHEN f.requester_id=$1 THEN a2.username ELSE a1.username END AS other_username,CASE WHEN f.requester_id=$1 THEN a2.avatar_data ELSE a1.avatar_data END AS other_avatar,CASE WHEN f.requester_id=$1 THEN a2.hide_online ELSE a1.hide_online END AS other_hide_online FROM nexus_friendships f JOIN nexus_accounts a1 ON a1.id=f.requester_id JOIN nexus_accounts a2 ON a2.id=f.addressee_id WHERE f.requester_id=$1 OR f.addressee_id=$1 ORDER BY f.created_at DESC",
       [account.id]
     );
-    res.json({friends:result.rows.map(row=>({id:String(row.id),userId:String(row.other_id),username:row.other_username,avatarData:row.other_avatar||null,status:row.status,direction:String(row.requester_id)===String(account.id)?"outgoing":"incoming",online:onlineAccountSockets.has(String(row.other_id))&&!row.other_hide_online}))});
+    res.json({friends:result.rows.map(row=>({id:String(row.id),userId:String(row.other_id),username:row.other_username,avatarData:row.other_avatar||null,status:row.status,direction:String(row.requester_id)===String(account.id)?"outgoing":"incoming",online:row.status==="accepted"&&onlineAccountSockets.has(String(row.other_id))&&!row.other_hide_online}))});
   } catch(e){console.error("Friends list failed",e);res.status(500).json({error:"Could not load friends right now."});}
 });
 app.post("/api/friends/request", friendRequestRateLimit, async (req,res)=>{
