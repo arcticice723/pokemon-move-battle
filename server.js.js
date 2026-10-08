@@ -13,6 +13,8 @@ if (process.env.DATABASE_URL) {
 const { Server } = require("socket.io");
 
 const app = express();
+// Render terminates HTTPS at its proxy; trust the first proxy for secure cookies and per-client rate limits.
+app.set("trust proxy", 1);
 const server = http.createServer(app);
 const io = new Server(server);
 const PORT = process.env.PORT || 3000;
@@ -28,6 +30,24 @@ app.get("/health", (_req, res) => res.status(200).json({ status: "ok", app: "Nex
 // Basic Nexus accounts. Set DATABASE_URL to a persistent PostgreSQL database in production.
 const ACCOUNT_FILE = path.join(__dirname, "accounts.json");
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) console.error("WARNING: Set a stable SESSION_SECRET in production; sessions will reset on restart.");
+const authRateBuckets = new Map();
+function authRateLimit({ limit, windowMs }) {
+  return (req, res, next) => {
+    const now = Date.now();
+    for (const [key, bucket] of authRateBuckets) if (bucket.resetAt <= now) authRateBuckets.delete(key);
+    const key = String(req.ip || req.socket.remoteAddress || "unknown") + ":" + req.path;
+    let bucket = authRateBuckets.get(key);
+    if (!bucket || bucket.resetAt <= now) { bucket = { count: 0, resetAt: now + windowMs }; authRateBuckets.set(key, bucket); }
+    bucket.count++;
+    res.setHeader("RateLimit-Limit", String(limit));
+    res.setHeader("RateLimit-Remaining", String(Math.max(0, limit - bucket.count)));
+    if (bucket.count > limit) return res.status(429).json({ error: "Too many attempts. Please wait a little while and try again." });
+    next();
+  };
+}
+const loginRateLimit = authRateLimit({ limit: 12, windowMs: 15 * 60 * 1000 });
+const registerRateLimit = authRateLimit({ limit: 8, windowMs: 60 * 60 * 1000 });
 let accountFileQueue = Promise.resolve();
 async function initAccounts() {
   if (pgPool) {
@@ -104,7 +124,7 @@ function clearSessionCookie(res) { res.setHeader("Set-Cookie", "nexus_session=; 
 app.use(express.json({ limit: "1.5mb" }));
 app.get("/account", (_req,res)=>res.sendFile(path.join(__dirname,"account.html")));
 app.get("/api/auth/me", async (req,res)=>{ try { const a=await accountFromRequest(req); if(!a)return res.status(401).json({error:"Not signed in."}); res.json({account:publicAccount(a)}); } catch(e) { console.error("Account lookup failed",e);res.status(500).json({error:"Account service unavailable."}); }});
-app.post("/api/auth/register", async (req,res)=>{
+app.post("/api/auth/register", registerRateLimit, async (req,res)=>{
   try {
     const username=String(req.body.username||"").trim(), email=String(req.body.email||"").trim().toLowerCase(), password=String(req.body.password||"");
     if(!/^[A-Za-z0-9_]{3,20}$/.test(username))return res.status(400).json({error:"Username must be 3–20 characters using letters, numbers, or underscores."});
@@ -114,7 +134,7 @@ app.post("/api/auth/register", async (req,res)=>{
     const a=await createAccount(username,email,salt+":"+derived.toString("hex"));setSessionCookie(res,a);res.status(201).json({account:publicAccount(a)});
   } catch(e) { if(e.status)return res.status(e.status).json({error:e.message});console.error("Registration failed",e);res.status(500).json({error:"Could not create your account. Try again later."}); }
 });
-app.post("/api/auth/login", async (req,res)=>{
+app.post("/api/auth/login", loginRateLimit, async (req,res)=>{
   try {
     const login=String(req.body.login||"").trim(), password=String(req.body.password||"");
     if(!login||!password)return res.status(400).json({error:"Enter your username/email and password."});
@@ -144,6 +164,44 @@ app.post("/api/account/avatar", async (req,res)=>{
     res.json({avatarData:avatar||null});
   } catch(e){console.error("Avatar update failed",e);res.status(500).json({error:"Could not update your profile picture."});}
 });
+
+app.post("/api/account/delete", async (req,res)=>{
+  try {
+    const account = await accountFromRequest(req);
+    if (!account) return res.status(401).json({ error: "Sign in again before deleting your account." });
+    const password = String(req.body.password || "");
+    if (!password || password.length > 200) return res.status(400).json({ error: "Enter your current password to confirm deletion." });
+    let stored = null;
+    if (pgPool) {
+      const result = await pgPool.query("SELECT password_hash FROM nexus_accounts WHERE id=$1", [account.id]);
+      stored = result.rows[0]?.password_hash || null;
+    } else {
+      const records = await readLocalAccounts();
+      stored = records.find(a => String(a.id) === String(account.id))?.password_hash || null;
+    }
+    if (!stored) return res.status(404).json({ error: "Account not found." });
+    const [salt, hash] = String(stored).split(":");
+    const derived = await scrypt(password, salt, 64);
+    const expected = Buffer.from(hash, "hex");
+    if (expected.length !== derived.length || !crypto.timingSafeEqual(expected, derived))
+      return res.status(401).json({ error: "Password is incorrect. Your account was not deleted." });
+    if (pgPool) {
+      await pgPool.query("DELETE FROM nexus_accounts WHERE id=$1", [account.id]);
+    } else {
+      accountFileQueue = accountFileQueue.then(async () => {
+        const records = await readLocalAccounts();
+        await fs.promises.writeFile(ACCOUNT_FILE, JSON.stringify(records.filter(a => String(a.id) !== String(account.id)), null, 2), { mode: 0o600 });
+      });
+      await accountFileQueue;
+    }
+    clearSessionCookie(res);
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("Account deletion failed", e);
+    return res.status(500).json({ error: "Could not delete the account right now. Please try again later." });
+  }
+});
+
 app.post("/api/auth/logout", (_req,res)=>{clearSessionCookie(res);res.json({ok:true});});
 
 app.get("/pokemon-move-battle", (_req, res) => res.sendFile(path.join(__dirname, "pokemon.html")));
