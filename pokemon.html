@@ -545,27 +545,22 @@
       "updatePlayers",
       players => {
 
-        playersList.innerHTML =
-          "";
-
-        for (
-          let i = 0;
-          i < players.length;
-          i++
-        ) {
-
-          const div =
-            document.createElement(
-              "div"
-            );
-
-          div.textContent =
-            `Player ${i + 1}: ${players[i].username}`;
-
-          playersList.appendChild(
-            div
-          );
-        }
+        playersList.replaceChildren();
+        players.forEach((player, index) => {
+          const div = document.createElement("div");
+          div.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:#0c1322;margin:5px 0";
+          if (player.avatarData) {
+            const img = document.createElement("img");
+            img.src = player.avatarData;
+            img.alt = "";
+            img.style.cssText = "width:32px;height:32px;object-fit:cover;border-radius:50%";
+            div.appendChild(img);
+          }
+          const name = document.createElement("span");
+          name.textContent = `Player ${index + 1}: ${player.username}`;
+          div.appendChild(name);
+          playersList.appendChild(div);
+        });
       }
     );
 
