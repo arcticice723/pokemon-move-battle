@@ -374,7 +374,7 @@ io.on("connection", socket => {
    const username=cleanName(socket.data.accountUsername || data.username); if(!username){socket.emit("errorMessage","Enter a username.");return;} const resumeToken=String(data.resumeToken||""); if(!resumeToken){socket.emit("errorMessage","Session token missing; refresh and try again.");return;}
    const roomCode=generateRoomCode(rooms);
    rooms[roomCode]={players:[{id:socket.id,username,resumeToken,accountId:socket.data.accountId||null,avatarData:socket.data.avatarData||null,disconnectTimer:null}],maxPlayers:Math.max(2,Math.min(8,Number(data.maxPlayers)||2)),currentPlayer:0,usedMoves:[],timer:60,timerStarted:false,timerInterval:null,gameStarted:false,gameOver:false};
-   socket.join(roomCode);socket.emit("roomCreated",roomCode);socket.emit("playerNumber",0);io.to(roomCode).emit("updatePlayers",rooms[roomCode].players);
+   socket.join(roomCode);socket.emit("roomCreated",roomCode);socket.emit("playerNumber",0);io.to(roomCode).emit("updatePlayers",publicPlayers(rooms[roomCode]));
  });
  socket.on("joinRoom", data => {
    const roomCode=String(data.roomCode||"").trim();
@@ -385,7 +385,7 @@ io.on("connection", socket => {
    if(room.gameStarted){socket.emit("errorMessage","Game already started");return;}
    if(room.players.length>=room.maxPlayers){socket.emit("errorMessage","Room is full");return;}
    if(room.players.some(p=>p.username.toLowerCase()===username.toLowerCase())){socket.emit("errorMessage","Username already taken");return;}
-   room.players.push({id:socket.id,username,resumeToken:String(data.resumeToken||""),accountId:socket.data.accountId||null,avatarData:socket.data.avatarData||null,disconnectTimer:null});socket.join(roomCode);socket.emit("joinSuccess");socket.emit("playerNumber",room.players.length-1);io.to(roomCode).emit("updatePlayers",room.players);
+   room.players.push({id:socket.id,username,resumeToken:String(data.resumeToken||""),accountId:socket.data.accountId||null,avatarData:socket.data.avatarData||null,disconnectTimer:null});socket.join(roomCode);socket.emit("joinSuccess");socket.emit("playerNumber",room.players.length-1);io.to(roomCode).emit("updatePlayers",publicPlayers(room));
    if(room.players.length>=2){room.gameStarted=true;io.to(roomCode).emit("gameStart",{currentPlayer:room.currentPlayer,currentUsername:room.players[0].username,timer:room.timer});}
  });
  socket.on("resumeRoom", data => {
@@ -486,7 +486,7 @@ io.on("connection", socket => {
  socket.on("disconnect", () => {
    if(socket.data.accountId){const id=socket.data.accountId;const count=onlineAccountSockets.get(id)||0;if(count<=1)onlineAccountSockets.delete(id);else onlineAccountSockets.set(id,count-1);}
    for(const code of Object.keys(rooms)){const room=rooms[code];const player=room.players.find(p=>p.id===socket.id);if(!player)continue;
-     player.disconnectTimer=setTimeout(()=>{const i=room.players.findIndex(p=>p===player&&p.id===socket.id);if(i<0)return;room.players.splice(i,1);io.to(code).emit("errorMessage",player.username+" disconnected.");io.to(code).emit("updatePlayers",room.players);if(room.currentPlayer>=room.players.length)room.currentPlayer=0;endRoomIfEmpty(code,rooms);},60000);
+     player.disconnectTimer=setTimeout(()=>{const i=room.players.findIndex(p=>p===player&&p.id===socket.id);if(i<0)return;room.players.splice(i,1);io.to(code).emit("errorMessage",player.username+" disconnected.");io.to(code).emit("updatePlayers",publicPlayers(room));if(room.currentPlayer>=room.players.length)room.currentPlayer=0;endRoomIfEmpty(code,rooms);},60000);
    }
    for(const code of Object.keys(guessRooms)){const room=guessRooms[code];const player=room.players.find(p=>p.id===socket.id);if(!player)continue;
      player.disconnectTimer=setTimeout(()=>{const i=room.players.findIndex(p=>p===player&&p.id===socket.id);if(i<0)return;const name=player.username;room.players.splice(i,1);if(i<room.currentTurn)room.currentTurn--;if(room.currentTurn>=room.players.length)room.currentTurn=0;if(room.pendingQuestion){delete room.pendingQuestion.answers[socket.id];if(room.pendingQuestion.askerId===socket.id){room.pendingQuestion=null;io.to("guess:"+code).emit("guessChat",{username:"Nexus",message:"The question was cancelled because its asker disconnected."});}else finishQuestion(code);}io.to("guess:"+code).emit("guessChat",{username:"Nexus",message:name+" disconnected."});if(!room.players.length){delete guessRooms[code];return;}if(room.players.filter(p=>!p.solved).length<=1&&room.started){room.finished=true;io.to("guess:"+code).emit("guessGameOver",{message:"The round has ended because only one player remains."});}sendGuessState(code);},60000);
