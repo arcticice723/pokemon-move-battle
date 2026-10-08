@@ -388,6 +388,13 @@
         "movesList"
       );
 
+    let resumeToken = "";
+    function freshResumeToken(){return (window.crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())+"-"+Math.random().toString(36).slice(2);}
+    function saveSession(game){localStorage.setItem("nexusSession",JSON.stringify({game,roomCode,username,resumeToken}));}
+    function prepareSession(){resumeToken=freshResumeToken();return resumeToken;}
+    socket.on("connect",()=>{try{const saved=JSON.parse(localStorage.getItem("nexusSession")||"null");if(saved&&saved.game==="pokemon"&&saved.roomCode&&saved.resumeToken){roomCode=saved.roomCode;username=saved.username||"";resumeToken=saved.resumeToken;document.getElementById("usernameInput").value=username;document.getElementById("roomJoinInput").value=roomCode;message.textContent="Rejoining your room…";socket.emit("resumeRoom",{game:"pokemon",roomCode,resumeToken});}}catch{}});
+    socket.on("roomResumed",data=>{roomCode=data.roomCode;username=data.username;myPlayerNumber=data.playerNumber;currentPlayer=data.currentPlayer;usedMoves=data.usedMoves||[];gameOver=!!data.gameOver;roomMenu.classList.add("hidden");document.getElementById("gameUI").classList.remove("hidden");roomCodeText.innerHTML="Room Code: <b>"+roomCode+"</b>";moveCount.textContent=usedMoves.length+" / "+pokemonMoves.length+" Moves Used";movesList.innerHTML="";usedMoves.forEach(move=>{const tag=document.createElement("div");tag.className="move-tag";tag.textContent=move;movesList.appendChild(tag)});if(data.gameStarted){moveInput.classList.remove("hidden");submitButton.classList.remove("hidden");timerElement.classList.remove("hidden");timerElement.textContent=data.timer;turnText.textContent=currentPlayer===myPlayerNumber?"Your Turn":(data.players[currentPlayer]?.username||"Opponent")+"'s Turn";}message.textContent="Rejoined room "+roomCode+".";if(gameOver){turnText.textContent="Game Over";}});
+
     async function loadMoves() {
 
       try {
@@ -440,6 +447,7 @@
         "createRoom",
         {
           username,
+          resumeToken: prepareSession(),
 
           maxPlayers:
             parseInt(
@@ -472,7 +480,7 @@
       }
 
       message.textContent = "Joining room " + roomCode + "…";
-      socket.emit("joinRoom", { roomCode, username });
+      socket.emit("joinRoom", { roomCode, username, resumeToken: prepareSession() });
     }
 
     socket.on(
@@ -480,6 +488,7 @@
       code => {
 
         roomCode = code;
+        saveSession("pokemon");
 
         roomMenu.classList.add(
           "hidden"
@@ -504,6 +513,7 @@
     socket.on(
       "joinSuccess",
       () => {
+        saveSession("pokemon");
 
         roomMenu.classList.add(
           "hidden"
