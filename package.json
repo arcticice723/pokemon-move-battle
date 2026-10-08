@@ -1,17 +1,10 @@
 {
-  "name": "pokemon-move-battle-online",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "dependencies": {
-    "express": "^5.2.1",
-    "socket.io": "^4.8.3"
-  }
+  "name": "nexus-game-hub",
+  "version": "2.0.0",
+  "description": "Nexus multiplayer game hub",
+  "main": "server.js.js",
+  "scripts": { "start": "node server.js.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "express": "^5.2.1", "socket.io": "^4.8.3" },
+  "type": "commonjs"
 }
