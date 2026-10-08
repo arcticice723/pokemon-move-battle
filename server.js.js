@@ -53,6 +53,7 @@ async function initAccounts() {
   if (pgPool) {
     await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_accounts (id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
     await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS avatar_data TEXT");
+    await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS hide_online BOOLEAN NOT NULL DEFAULT FALSE");
     await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_friendships (id BIGSERIAL PRIMARY KEY, requester_id BIGINT NOT NULL REFERENCES nexus_accounts(id) ON DELETE CASCADE, addressee_id BIGINT NOT NULL REFERENCES nexus_accounts(id) ON DELETE CASCADE, status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted')), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (requester_id <> addressee_id), UNIQUE (requester_id, addressee_id))");
   }
 }
@@ -96,7 +97,7 @@ async function createAccount(username, email, passwordHash) {
   await saveLocalAccount(account);
   return account;
 }
-function publicAccount(a) { return { id: String(a.id), username: a.username, email: a.email, createdAt: a.created_at, avatarData: a.avatar_data || a.avatarData || null }; }
+function publicAccount(a) { return { id: String(a.id), username: a.username, email: a.email, createdAt: a.created_at, avatarData: a.avatar_data || a.avatarData || null, hideOnline: Boolean(a.hide_online ?? a.hideOnline ?? false) }; }
 function makeSession(a) {
   const payload = Buffer.from(JSON.stringify({ id: String(a.id), exp: Date.now() + 7*24*60*60*1000 })).toString("base64url");
   const sig = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
@@ -115,7 +116,7 @@ function readSession(req) {
 async function accountFromRequest(req) {
   const session = readSession(req); if (!session) return null;
   await accountsReady;
-  if (pgPool) { const r = await pgPool.query("SELECT id,username,email,created_at,avatar_data FROM nexus_accounts WHERE id=$1", [session.id]); return r.rows[0] || null; }
+  if (pgPool) { const r = await pgPool.query("SELECT id,username,email,created_at,avatar_data,hide_online FROM nexus_accounts WHERE id=$1", [session.id]); return r.rows[0] || null; }
   const accounts = await readLocalAccounts(); return accounts.find(a=>String(a.id)===session.id) || null;
 }
 function setSessionCookie(res, account) {
@@ -205,16 +206,38 @@ app.post("/api/account/delete", async (req,res)=>{
 });
 
 
+
+app.post("/api/account/privacy", async (req,res)=>{
+  try {
+    const account=await accountFromRequest(req);
+    if(!account)return res.status(401).json({error:"Sign in to change privacy settings."});
+    const hideOnline=Boolean(req.body.hideOnline);
+    await accountsReady;
+    if(pgPool) await pgPool.query("UPDATE nexus_accounts SET hide_online=$1 WHERE id=$2",[hideOnline,account.id]);
+    else {
+      accountFileQueue=accountFileQueue.then(async()=>{
+        const records=await readLocalAccounts();
+        const record=records.find(x=>String(x.id)===String(account.id));
+        if(!record)throw new Error("Account not found.");
+        record.hideOnline=hideOnline;
+        await fs.promises.writeFile(ACCOUNT_FILE,JSON.stringify(records,null,2),{mode:0o600});
+      });
+      await accountFileQueue;
+    }
+    res.json({ok:true,hideOnline});
+  } catch(e){console.error("Privacy setting update failed",e);res.status(500).json({error:"Could not save that privacy setting."});}
+});
+
 app.get("/api/friends", async (req,res)=>{
   try {
     const account=await accountFromRequest(req);
     if(!account)return res.status(401).json({error:"Sign in to view friends."});
     if(!pgPool)return res.status(503).json({error:"Friends require the production database to be configured. Please try again after setup."});
     const result=await pgPool.query(
-      "SELECT f.id,f.status,f.requester_id,f.addressee_id,f.created_at,CASE WHEN f.requester_id=$1 THEN a2.id ELSE a1.id END AS other_id,CASE WHEN f.requester_id=$1 THEN a2.username ELSE a1.username END AS other_username,CASE WHEN f.requester_id=$1 THEN a2.avatar_data ELSE a1.avatar_data END AS other_avatar FROM nexus_friendships f JOIN nexus_accounts a1 ON a1.id=f.requester_id JOIN nexus_accounts a2 ON a2.id=f.addressee_id WHERE f.requester_id=$1 OR f.addressee_id=$1 ORDER BY f.created_at DESC",
+      "SELECT f.id,f.status,f.requester_id,f.addressee_id,f.created_at,CASE WHEN f.requester_id=$1 THEN a2.id ELSE a1.id END AS other_id,CASE WHEN f.requester_id=$1 THEN a2.username ELSE a1.username END AS other_username,CASE WHEN f.requester_id=$1 THEN a2.avatar_data ELSE a1.avatar_data END AS other_avatar,CASE WHEN f.requester_id=$1 THEN a2.hide_online ELSE a1.hide_online END AS other_hide_online FROM nexus_friendships f JOIN nexus_accounts a1 ON a1.id=f.requester_id JOIN nexus_accounts a2 ON a2.id=f.addressee_id WHERE f.requester_id=$1 OR f.addressee_id=$1 ORDER BY f.created_at DESC",
       [account.id]
     );
-    res.json({friends:result.rows.map(row=>({id:String(row.id),userId:String(row.other_id),username:row.other_username,avatarData:row.other_avatar||null,status:row.status,direction:String(row.requester_id)===String(account.id)?"outgoing":"incoming",online:onlineAccountSockets.has(String(row.other_id))}))});
+    res.json({friends:result.rows.map(row=>({id:String(row.id),userId:String(row.other_id),username:row.other_username,avatarData:row.other_avatar||null,status:row.status,direction:String(row.requester_id)===String(account.id)?"outgoing":"incoming",online:onlineAccountSockets.has(String(row.other_id))&&!row.other_hide_online}))});
   } catch(e){console.error("Friends list failed",e);res.status(500).json({error:"Could not load friends right now."});}
 });
 app.post("/api/friends/request", async (req,res)=>{
