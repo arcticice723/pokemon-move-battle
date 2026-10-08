@@ -22,10 +22,10 @@ const PORT = process.env.PORT || 3000;
 app.use((req, res, next) => {
   const blockedFiles = new Set(["accounts.json", "server.js.js", "package.json", "render.yaml", "readme.md", ".gitignore"]);
   const requestedFile = path.posix.basename(req.path).toLowerCase();
-  if (blockedFiles.has(requestedFile)) return res.sendStatus(404);
+  if (blockedFiles.has(requestedFile) || /^\/(docs|scripts|\.github)(\/|$)/i.test(req.path)) return res.sendStatus(404);
   next();
 });
-app.use(express.static(__dirname, { dotfiles: "deny", index: false }));
+app.use(express.static(__dirname, { dotfiles: "deny" }));
 app.get("/health", (_req, res) => res.status(200).json({ status: "ok", app: "Nexus" }));
 // Basic Nexus accounts. Set DATABASE_URL to a persistent PostgreSQL database in production.
 const ACCOUNT_FILE = path.join(__dirname, "accounts.json");
@@ -48,6 +48,8 @@ function authRateLimit({ limit, windowMs }) {
 }
 const loginRateLimit = authRateLimit({ limit: 12, windowMs: 15 * 60 * 1000 });
 const registerRateLimit = authRateLimit({ limit: 8, windowMs: 60 * 60 * 1000 });
+const deleteRateLimit = authRateLimit({ limit: 5, windowMs: 15 * 60 * 1000 });
+const friendRequestRateLimit = authRateLimit({ limit: 20, windowMs: 60 * 60 * 1000 });
 let accountFileQueue = Promise.resolve();
 async function initAccounts() {
   if (pgPool) {
@@ -167,7 +169,7 @@ app.post("/api/account/avatar", async (req,res)=>{
   } catch(e){console.error("Avatar update failed",e);res.status(500).json({error:"Could not update your profile picture."});}
 });
 
-app.post("/api/account/delete", async (req,res)=>{
+app.post("/api/account/delete", deleteRateLimit, async (req,res)=>{
   try {
     const account = await accountFromRequest(req);
     if (!account) return res.status(401).json({ error: "Sign in again before deleting your account." });
@@ -240,7 +242,7 @@ app.get("/api/friends", async (req,res)=>{
     res.json({friends:result.rows.map(row=>({id:String(row.id),userId:String(row.other_id),username:row.other_username,avatarData:row.other_avatar||null,status:row.status,direction:String(row.requester_id)===String(account.id)?"outgoing":"incoming",online:onlineAccountSockets.has(String(row.other_id))&&!row.other_hide_online}))});
   } catch(e){console.error("Friends list failed",e);res.status(500).json({error:"Could not load friends right now."});}
 });
-app.post("/api/friends/request", async (req,res)=>{
+app.post("/api/friends/request", friendRequestRateLimit, async (req,res)=>{
   try {
     const account=await accountFromRequest(req);
     if(!account)return res.status(401).json({error:"Sign in to add friends."});
