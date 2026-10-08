@@ -312,7 +312,7 @@ const characters = [
 ];
 function generateRoomCode(pool) { let code; do { code=String(Math.floor(10000+Math.random()*90000)); } while(pool[code]); return code; }
 function cleanName(value) { return String(value || "").trim().slice(0,20); }
-function publicPlayers(room) { return room.players.map(p=>({id:p.id,username:p.username,avatarData:p.avatarData||null,accountId:p.accountId||null})); }
+function publicPlayers(room) { return room.players.map(p=>({id:p.id,username:p.username,avatarData:p.avatarData||null})); }
 function clearRoomTimer(room) { if(room.timerInterval) clearInterval(room.timerInterval); }
 function endRoomIfEmpty(code, pool) { const room=pool[code]; if(room && room.players.length===0){clearRoomTimer(room);delete pool[code];} }
 function filteredCharacters(filters) {
@@ -395,7 +395,7 @@ io.on("connection", socket => {
      const room=rooms[code];if(!room)return;const player=room.players.find(p=>p.resumeToken===token);if(!player)return;
      if(player.disconnectTimer)clearTimeout(player.disconnectTimer);player.disconnectTimer=null;player.id=socket.id;if(socket.data.accountId){player.accountId=socket.data.accountId;player.avatarData=socket.data.avatarData||null;}socket.join(code);
      socket.emit("roomResumed",{game:"pokemon",roomCode:code,username:player.username,playerNumber:room.players.indexOf(player),players:publicPlayers(room),currentPlayer:room.currentPlayer,usedMoves:room.usedMoves,timer:room.timer,timerStarted:room.timerStarted,gameStarted:room.gameStarted,gameOver:room.gameOver});
-     io.to(code).emit("updatePlayers",room.players);
+     io.to(code).emit("updatePlayers",publicPlayers(room));
      if(room.gameStarted)socket.emit("gameStart",{currentPlayer:room.currentPlayer,currentUsername:room.players[room.currentPlayer]?.username||"",timer:room.timer});
    } else if(data.game==="character"){
      const room=guessRooms[code];if(!room)return;const player=room.players.find(p=>p.resumeToken===token);if(!player)return;
