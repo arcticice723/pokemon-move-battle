@@ -3,3 +3,5 @@
 
 /* Account picture pinned to the far-right end of the site navigation. */
 .top-profile{width:42px;height:42px;flex:0 0 42px;display:grid;place-items:center;border:2px solid var(--line);border-radius:50%;overflow:hidden;background:linear-gradient(135deg,#20254a,#182239);color:var(--cyan);font-weight:900;font-size:1.05rem;transition:border-color .15s,transform .15s}.top-profile:hover{border-color:var(--accent);transform:translateY(-1px)}.top-profile img{width:100%;height:100%;object-fit:cover}.nav{align-items:center}@media(max-width:700px){.top-profile{width:38px;height:38px;flex-basis:38px}}
+
+.footer-inner{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}.footer-tagline{float:right;margin-left:12px}.footer-links{display:flex;gap:14px;flex-wrap:wrap}.footer-links a{color:var(--muted);text-decoration:none}.footer-links a:hover{color:var(--cyan)}@media(max-width:700px){.footer-tagline{display:block;float:none;margin:4px 0 0}.footer-links{gap:10px 14px}}
