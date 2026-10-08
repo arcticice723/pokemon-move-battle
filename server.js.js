@@ -85,8 +85,8 @@ io.on("connection", socket => {
    socket.join("guess:"+roomCode);socket.emit("guessRoomCreated",{roomCode,players:publicPlayers(guessRooms[roomCode]),filters,myCharacter:null});sendGuessState(roomCode);
  });
  socket.on("joinGuessRoom", data => {
-   const roomCode=String(data.roomCode||"").trim();const room=guessRooms[roomCode];const username=cleanName(data.username);
-   if(!room){socket.emit("errorMessage","Guessing room not found.");return;}if(!username){socket.emit("errorMessage","Enter a name first.");return;}
+   const roomCode=String(data.roomCode||"").trim().toUpperCase();const room=guessRooms[roomCode];const username=cleanName(data.username);
+   if(!/^\\d{5}$/.test(roomCode)){socket.emit("errorMessage","Enter the 5-digit room code shown by the host.");return;}if(!room){socket.emit("errorMessage","Room not found. Check the code and make sure the host is still in the room.");return;}if(!username){socket.emit("errorMessage","Enter a name first.");return;}
    if(room.started){socket.emit("errorMessage","This round has already started.");return;}
    if(room.players.length>=room.maxPlayers){socket.emit("errorMessage","Room is full.");return;}
    if(room.players.some(p=>p.username.toLowerCase()===username.toLowerCase())){socket.emit("errorMessage","That name is already in the room.");return;}
