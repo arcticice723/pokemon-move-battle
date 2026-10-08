@@ -17,43 +17,41 @@
   <style>
 
     body {
-
       margin: 0;
-
-      font-family: Arial, sans-serif;
-
-      background:
-        linear-gradient(
-          135deg,
-          #ffe066,
-          #ff6b6b
-        );
-
-      display: flex;
-
-      justify-content: center;
-
-      align-items: center;
-
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(ellipse at 15% 0%, #20254a 0, transparent 42%), #090d18;
+      color: #f4f7ff;
       min-height: 100vh;
     }
+    .site-header {
+      width: min(1120px, calc(100% - 36px));
+      margin: auto;
+      padding: 18px 0;
+      border-bottom: 1px solid #ffffff18;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .brand { color: #f4f7ff; text-decoration: none; display: flex; align-items: center; gap: 10px; font-size: 1.25rem; font-weight: 900; letter-spacing: -.04em; }
+    .brand-mark { display: grid; place-items: center; width: 37px; height: 37px; border-radius: 12px; background: linear-gradient(135deg,#8b7cff,#5ce1e6); color: #080d18; }
+    .top-join { display: flex; gap: 8px; align-items: center; flex: 1; justify-content: center; }
+    .top-join input { width: min(190px, 42vw); margin: 0; padding: 10px 12px; font-size: 15px; background: #0c1322; color: #f4f7ff; border: 1px solid #2a3854; }
+    .back { color: #c5cce0; text-decoration: none; font-weight: 700; white-space: nowrap; }
+    @media(max-width:700px) { .top-join { order: 3; width: 100%; flex-basis: 100%; justify-content: flex-start; } .site-header { align-items: center; } }
 
     .game-box {
 
-      background: white;
-
+      background: #121a2b;
+      color: #f4f7ff;
       padding: 30px;
-
-      border-radius: 25px;
-
-      width: 90%;
-
-      max-width: 800px;
-
-      box-shadow:
-        0 10px 30px
-        rgba(0,0,0,0.2);
-
+      border: 1px solid #2a3854;
+      border-radius: 22px;
+      width: min(800px, calc(100% - 36px));
+      box-sizing: border-box;
+      margin: 34px auto 60px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.2);
       text-align: center;
     }
 
@@ -79,7 +77,7 @@
 
       margin-bottom: 15px;
 
-      color: #e63946;
+      color: #5ce1e6;
     }
 
     .hidden {
@@ -89,26 +87,20 @@
 
     button {
 
-      background: #ffcc00;
-
-      border: none;
-
-      padding: 12px 20px;
-
+      background: #8b7cff;
+      color: white;
+      border: 1px solid transparent;
+      padding: 11px 16px;
       border-radius: 12px;
-
-      font-size: 18px;
-
-      font-weight: bold;
-
+      font-size: 15px;
+      font-weight: 750;
       cursor: pointer;
-
       margin: 5px;
     }
 
     button:hover {
 
-      background: #ffb700;
+      background: #a096ff;
     }
 
     input,
@@ -122,8 +114,9 @@
 
       border-radius: 12px;
 
-      border: 2px solid #ccc;
-
+      border: 1px solid #2a3854;
+      background: #0c1322;
+      color: #f4f7ff;
       margin-bottom: 15px;
 
       box-sizing: border-box;
@@ -133,7 +126,7 @@
 
       font-size: 72px;
 
-      color: #e63946;
+      color: #5ce1e6;
 
       font-weight: bold;
 
@@ -164,10 +157,9 @@
 
       margin-top: 20px;
 
-      background: #f1f1f1;
-
+      background: #0c1322;
+      border: 1px solid #2a3854;
       padding: 10px;
-
       border-radius: 12px;
 
       max-height: 250px;
@@ -185,7 +177,7 @@
 
     .move-tag {
 
-      background: #90caf9;
+      background: #263453;
 
       padding: 5px 10px;
 
@@ -199,7 +191,14 @@
 </head>
 
 <body>
-
+  <header class="site-header">
+    <a class="brand" href="/"><span class="brand-mark">N</span>NEXUS</a>
+    <div class="top-join">
+      <input type="text" id="roomJoinInput" maxlength="5" inputmode="numeric" autocomplete="off" placeholder="Enter 5-digit room code" aria-label="Room code">
+      <button type="button" onclick="joinRoom()">Join Room</button>
+    </div>
+    <a class="back" href="/">All games</a>
+  </header>
   <div class="game-box">
 
     <h1>
@@ -256,17 +255,7 @@
         Create Room
       </button>
 
-      <br />
-
-      <input
-        type="text"
-        id="roomJoinInput"
-        placeholder="Enter Room Code"
-      />
-
-      <button onclick="joinRoom()">
-        Join Room
-      </button>
+      <p style="color:#9eacc7">To join a room, enter its 5-digit code in the top bar.</p>
 
     </div>
 
@@ -445,7 +434,7 @@
           .value
           .trim();
 
-      if (!username) return;
+      if (!username) { message.textContent = "Enter a username first, then join using the code in the top bar."; document.getElementById("usernameInput").focus(); return; }
 
       socket.emit(
         "createRoom",
@@ -473,23 +462,17 @@
           .value
           .trim();
 
-      if (!username) return;
+      if (!username) { message.textContent = "Enter a username first."; document.getElementById("usernameInput").focus(); return; }
 
-      roomCode =
-        document
-          .getElementById(
-            "roomJoinInput"
-          )
-          .value
-          .trim();
+      roomCode = document.getElementById("roomJoinInput").value.trim();
+      if (!/^\\d{5}$/.test(roomCode)) {
+        message.textContent = "Enter the 5-digit room code shown by the host.";
+        document.getElementById("roomJoinInput").focus();
+        return;
+      }
 
-      socket.emit(
-        "joinRoom",
-        {
-          roomCode,
-          username
-        }
-      );
+      message.textContent = "Joining room " + roomCode + "…";
+      socket.emit("joinRoom", { roomCode, username });
     }
 
     socket.on(
