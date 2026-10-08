@@ -53,6 +53,7 @@ async function initAccounts() {
   if (pgPool) {
     await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_accounts (id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
     await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS avatar_data TEXT");
+    await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_friendships (id BIGSERIAL PRIMARY KEY, requester_id BIGINT NOT NULL REFERENCES nexus_accounts(id) ON DELETE CASCADE, addressee_id BIGINT NOT NULL REFERENCES nexus_accounts(id) ON DELETE CASCADE, status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted')), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (requester_id <> addressee_id), UNIQUE (requester_id, addressee_id))");
   }
 }
 const accountsReady = initAccounts();
@@ -194,6 +195,7 @@ app.post("/api/account/delete", async (req,res)=>{
       });
       await accountFileQueue;
     }
+    for (const connectedSocket of io.sockets.sockets.values()) if (connectedSocket.data.accountId === String(account.id)) connectedSocket.disconnect(true);
     clearSessionCookie(res);
     return res.json({ ok: true });
   } catch (e) {
@@ -202,11 +204,73 @@ app.post("/api/account/delete", async (req,res)=>{
   }
 });
 
+
+app.get("/api/friends", async (req,res)=>{
+  try {
+    const account=await accountFromRequest(req);
+    if(!account)return res.status(401).json({error:"Sign in to view friends."});
+    if(!pgPool)return res.status(503).json({error:"Friends require the production database to be configured. Please try again after setup."});
+    const result=await pgPool.query(
+      "SELECT f.id,f.status,f.requester_id,f.addressee_id,f.created_at,CASE WHEN f.requester_id=$1 THEN a2.id ELSE a1.id END AS other_id,CASE WHEN f.requester_id=$1 THEN a2.username ELSE a1.username END AS other_username,CASE WHEN f.requester_id=$1 THEN a2.avatar_data ELSE a1.avatar_data END AS other_avatar FROM nexus_friendships f JOIN nexus_accounts a1 ON a1.id=f.requester_id JOIN nexus_accounts a2 ON a2.id=f.addressee_id WHERE f.requester_id=$1 OR f.addressee_id=$1 ORDER BY f.created_at DESC",
+      [account.id]
+    );
+    res.json({friends:result.rows.map(row=>({id:String(row.id),userId:String(row.other_id),username:row.other_username,avatarData:row.other_avatar||null,status:row.status,direction:String(row.requester_id)===String(account.id)?"outgoing":"incoming",online:onlineAccountSockets.has(String(row.other_id))}))});
+  } catch(e){console.error("Friends list failed",e);res.status(500).json({error:"Could not load friends right now."});}
+});
+app.post("/api/friends/request", async (req,res)=>{
+  try {
+    const account=await accountFromRequest(req);
+    if(!account)return res.status(401).json({error:"Sign in to add friends."});
+    if(!pgPool)return res.status(503).json({error:"Friends require the production database to be configured. Please try again after setup."});
+    const username=String(req.body.username||"").trim();
+    if(!/^[A-Za-z0-9_]{3,20}$/.test(username))return res.status(400).json({error:"Enter a valid Nexus username."});
+    const found=await pgPool.query("SELECT id,username FROM nexus_accounts WHERE LOWER(username)=LOWER($1) LIMIT 1",[username]);
+    const target=found.rows[0];
+    if(!target)return res.status(404).json({error:"No account found with that username."});
+    if(String(target.id)===String(account.id))return res.status(400).json({error:"You cannot add yourself."});
+    const existing=await pgPool.query("SELECT id,status,requester_id,addressee_id FROM nexus_friendships WHERE (requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1) LIMIT 1",[account.id,target.id]);
+    if(existing.rows[0]){
+      const f=existing.rows[0];
+      if(f.status==="accepted")return res.status(409).json({error:"You are already friends."});
+      if(String(f.requester_id)===String(target.id)&&String(f.addressee_id)===String(account.id)){
+        const accepted=await pgPool.query("UPDATE nexus_friendships SET status='accepted' WHERE id=$1 RETURNING id",[f.id]);
+        return res.json({ok:true,accepted:true,message:"Friend request accepted."});
+      }
+      return res.status(409).json({error:"A friend request is already pending."});
+    }
+    await pgPool.query("INSERT INTO nexus_friendships (requester_id,addressee_id) VALUES ($1,$2)",[account.id,target.id]);
+    res.status(201).json({ok:true,message:"Friend request sent."});
+  } catch(e){console.error("Friend request failed",e);res.status(500).json({error:"Could not send friend request right now."});}
+});
+app.post("/api/friends/:id/accept", async (req,res)=>{
+  try {
+    const account=await accountFromRequest(req);
+    if(!account)return res.status(401).json({error:"Sign in to manage friend requests."});
+    if(!pgPool)return res.status(503).json({error:"Friends require the production database to be configured."});
+    if(!/^\d+$/.test(req.params.id))return res.status(400).json({error:"Invalid friend request."});
+    const result=await pgPool.query("UPDATE nexus_friendships SET status='accepted' WHERE id=$1 AND addressee_id=$2 AND status='pending' RETURNING id",[req.params.id,account.id]);
+    if(!result.rowCount)return res.status(404).json({error:"That incoming request was not found."});
+    res.json({ok:true});
+  } catch(e){console.error("Accept friend request failed",e);res.status(500).json({error:"Could not accept the request."});}
+});
+app.post("/api/friends/:id/remove", async (req,res)=>{
+  try {
+    const account=await accountFromRequest(req);
+    if(!account)return res.status(401).json({error:"Sign in to manage friends."});
+    if(!pgPool)return res.status(503).json({error:"Friends require the production database to be configured."});
+    if(!/^\d+$/.test(req.params.id))return res.status(400).json({error:"Invalid friend entry."});
+    const result=await pgPool.query("DELETE FROM nexus_friendships WHERE id=$1 AND (requester_id=$2 OR addressee_id=$2) RETURNING id",[req.params.id,account.id]);
+    if(!result.rowCount)return res.status(404).json({error:"Friend entry not found."});
+    res.json({ok:true});
+  } catch(e){console.error("Remove friend failed",e);res.status(500).json({error:"Could not remove that friend."});}
+});
+
 app.post("/api/auth/logout", (_req,res)=>{clearSessionCookie(res);res.json({ok:true});});
 
 app.get("/pokemon-move-battle", (_req, res) => res.sendFile(path.join(__dirname, "pokemon.html")));
 app.get("/character-guess", (_req, res) => res.sendFile(path.join(__dirname, "character-guess.html")));
 
+const onlineAccountSockets = new Map();
 const rooms = Object.create(null);
 const guessRooms = Object.create(null);
 const characters = [
@@ -269,7 +333,15 @@ function finishQuestion(code) {
  nextGuessTurn(room);
  sendGuessState(code);
 }
-io.on("connection", socket => {
+io.on("connection", async socket => {
+   try {
+     const signedInAccount = await accountFromRequest({headers:{cookie:socket.handshake.headers.cookie||""}});
+     if (signedInAccount) {
+       const accountId=String(signedInAccount.id);
+       socket.data.accountId=accountId;
+       onlineAccountSockets.set(accountId,(onlineAccountSockets.get(accountId)||0)+1);
+     }
+   } catch (e) { console.error("Socket account lookup failed",e); }
  socket.on("createRoom", data => {
    const username=cleanName(data.username); if(!username){socket.emit("errorMessage","Enter a username.");return;} const resumeToken=String(data.resumeToken||""); if(!resumeToken){socket.emit("errorMessage","Session token missing; refresh and try again.");return;}
    const roomCode=generateRoomCode(rooms);
@@ -384,6 +456,7 @@ io.on("connection", socket => {
    sendGuessState(code);
  });
  socket.on("disconnect", () => {
+   if(socket.data.accountId){const id=socket.data.accountId;const count=onlineAccountSockets.get(id)||0;if(count<=1)onlineAccountSockets.delete(id);else onlineAccountSockets.set(id,count-1);}
    for(const code of Object.keys(rooms)){const room=rooms[code];const player=room.players.find(p=>p.id===socket.id);if(!player)continue;
      player.disconnectTimer=setTimeout(()=>{const i=room.players.findIndex(p=>p===player&&p.id===socket.id);if(i<0)return;room.players.splice(i,1);io.to(code).emit("errorMessage",player.username+" disconnected.");io.to(code).emit("updatePlayers",room.players);if(room.currentPlayer>=room.players.length)room.currentPlayer=0;endRoomIfEmpty(code,rooms);},60000);
    }
