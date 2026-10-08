@@ -390,7 +390,7 @@ io.on("connection", socket => {
  });
  socket.on("resumeRoom", data => {
    const code=String(data.roomCode||"").trim(), token=String(data.resumeToken||"");
-   if(!/^\\d{5}$/.test(code)||!token)return;
+   if(!/^\d{5}$/.test(code)||!token)return;
    if(data.game==="pokemon"){
      const room=rooms[code];if(!room)return;const player=room.players.find(p=>p.resumeToken===token);if(!player)return;
      if(player.disconnectTimer)clearTimeout(player.disconnectTimer);player.disconnectTimer=null;player.id=socket.id;if(socket.data.accountId){player.accountId=socket.data.accountId;player.avatarData=socket.data.avatarData||null;}socket.join(code);
