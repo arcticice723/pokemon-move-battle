@@ -90,7 +90,7 @@ async function createAccount(username, email, passwordHash) {
   await accountsReady;
   if (pgPool) {
     try {
-      const r = await pgPool.query("INSERT INTO nexus_accounts (username,email,password_hash,email_verified) VALUES ($1,$2,$3,FALSE) RETURNING id,username,email,created_at,email_verified", [username,email,passwordHash]);
+      const r = await pgPool.query("INSERT INTO nexus_accounts (username,email,password_hash,email_verified) VALUES ($1,$2,$3,TRUE) RETURNING id,username,email,created_at,email_verified", [username,email,passwordHash]);
       return r.rows[0];
     } catch (e) {
       if (e.code === "23505") { const err = new Error("That username or email is already registered."); err.status = 409; throw err; }
@@ -165,8 +165,6 @@ app.post("/api/auth/register", registerRateLimit, async (req,res)=>{
   try {
     if (process.env.NODE_ENV === "production" && !pgPool)
       return res.status(503).json({error:"Account registration is temporarily unavailable because persistent account storage is not configured. Please try again later."});
-    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM)
-      return res.status(503).json({error:"Email verification is not configured yet. Set RESEND_API_KEY and EMAIL_FROM in the hosting environment."});
     const username=String(req.body.username||"").trim(), email=String(req.body.email||"").trim().toLowerCase(), password=String(req.body.password||"");
     if(!/^[A-Za-z0-9_]{3,20}$/.test(username))return res.status(400).json({error:"Username must be 3–20 characters using letters, numbers, or underscores."});
     if(email.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({error:"Enter a valid email address."});
@@ -174,17 +172,7 @@ app.post("/api/auth/register", registerRateLimit, async (req,res)=>{
     if (!pgPool) return res.status(503).json({error:"Email verification requires persistent database storage. Configure DATABASE_URL before creating accounts."});
     const salt=crypto.randomBytes(16).toString("hex"), derived=await scrypt(password,salt,64);
     const a=await createAccount(username,email,salt+":"+derived.toString("hex"));
-    const token=crypto.randomBytes(32).toString("base64url");
-    const tokenHash=crypto.createHash("sha256").update(token).digest("hex");
-    await pgPool.query("INSERT INTO nexus_email_verifications (account_id,token_hash,expires_at) VALUES ($1,$2,NOW()+INTERVAL '24 hours') ON CONFLICT (account_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at,created_at=NOW()",[a.id,tokenHash]);
-    const verifyUrl=publicBaseUrl(req)+"/account?verify="+encodeURIComponent(token);
-    try {
-      await sendVerificationEmail({to:email,verifyUrl});
-    } catch(mailError) {
-      await pgPool.query("DELETE FROM nexus_accounts WHERE id=$1",[a.id]);
-      throw mailError;
-    }
-    res.status(201).json({verificationRequired:true,message:"Account created. Check your email and open the verification link before signing in."});
+    res.status(201).json({verificationRequired:false,message:"Account created. You can now sign in."});
   } catch(e) { if(e.status)return res.status(e.status).json({error:e.message}); if(e.code==="23505")return res.status(409).json({error:"That username or email is already registered."});console.error("Registration failed",e);res.status(500).json({error:"Could not create your account. Check the email address or try again later."}); }
 });
 app.post("/api/auth/verify-email", async (req,res)=>{
@@ -212,7 +200,7 @@ app.post("/api/auth/login", loginRateLimit, async (req,res)=>{
     const [salt,hash]=String(a.password_hash).split(":");if(!salt||!hash)return res.status(500).json({error:"Account credentials need to be reset."});
     const derived=await scrypt(password,salt,64), expected=Buffer.from(hash,"hex");
     if(expected.length!==derived.length||!crypto.timingSafeEqual(expected,derived))return res.status(401).json({error:"Incorrect username/email or password."});
-    if (pgPool && !a.email_verified) return res.status(403).json({error:"Verify your email address before signing in. Check your inbox for the Nexus verification link."});
+
     setSessionCookie(res,a);res.json({account:publicAccount(a)});
   } catch(e) { console.error("Login failed",e);res.status(500).json({error:"Could not sign in. Try again later."}); }
 });
