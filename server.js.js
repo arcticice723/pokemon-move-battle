@@ -23,7 +23,10 @@ const ACCOUNT_FILE = path.join(__dirname, "accounts.json");
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 let accountFileQueue = Promise.resolve();
 async function initAccounts() {
-  if (pgPool) await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_accounts (id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  if (pgPool) {
+    await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_accounts (id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, email TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+    await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS avatar_data TEXT");
+  }
 }
 const accountsReady = initAccounts();
 async function findAccountByLogin(login) {
@@ -65,7 +68,7 @@ async function createAccount(username, email, passwordHash) {
   await saveLocalAccount(account);
   return account;
 }
-function publicAccount(a) { return { id: String(a.id), username: a.username, email: a.email, createdAt: a.created_at }; }
+function publicAccount(a) { return { id: String(a.id), username: a.username, email: a.email, createdAt: a.created_at, avatarData: a.avatar_data || a.avatarData || null }; }
 function makeSession(a) {
   const payload = Buffer.from(JSON.stringify({ id: String(a.id), exp: Date.now() + 7*24*60*60*1000 })).toString("base64url");
   const sig = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
@@ -84,14 +87,14 @@ function readSession(req) {
 async function accountFromRequest(req) {
   const session = readSession(req); if (!session) return null;
   await accountsReady;
-  if (pgPool) { const r = await pgPool.query("SELECT id,username,email,created_at FROM nexus_accounts WHERE id=$1", [session.id]); return r.rows[0] || null; }
+  if (pgPool) { const r = await pgPool.query("SELECT id,username,email,created_at,avatar_data FROM nexus_accounts WHERE id=$1", [session.id]); return r.rows[0] || null; }
   const accounts = await readLocalAccounts(); return accounts.find(a=>String(a.id)===session.id) || null;
 }
 function setSessionCookie(res, account) {
   res.setHeader("Set-Cookie", "nexus_session="+encodeURIComponent(makeSession(account))+"; HttpOnly; Path=/; SameSite=Lax; Max-Age=604800"+(process.env.NODE_ENV==="production" ? "; Secure" : ""));
 }
 function clearSessionCookie(res) { res.setHeader("Set-Cookie", "nexus_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0"+(process.env.NODE_ENV==="production" ? "; Secure" : "")); }
-app.use(express.json({ limit: "10kb" }));
+app.use(express.json({ limit: "1.5mb" }));
 app.get("/account", (_req,res)=>res.sendFile(path.join(__dirname,"account.html")));
 app.get("/api/auth/me", async (req,res)=>{ try { const a=await accountFromRequest(req); if(!a)return res.status(401).json({error:"Not signed in."}); res.json({account:publicAccount(a)}); } catch(e) { console.error("Account lookup failed",e);res.status(500).json({error:"Account service unavailable."}); }});
 app.post("/api/auth/register", async (req,res)=>{
@@ -114,6 +117,25 @@ app.post("/api/auth/login", async (req,res)=>{
     if(expected.length!==derived.length||!crypto.timingSafeEqual(expected,derived))return res.status(401).json({error:"Incorrect username/email or password."});
     setSessionCookie(res,a);res.json({account:publicAccount(a)});
   } catch(e) { console.error("Login failed",e);res.status(500).json({error:"Could not sign in. Try again later."}); }
+});
+app.put("/api/account/avatar", async (req,res)=>{
+  try {
+    const account=await accountFromRequest(req);
+    if(!account)return res.status(401).json({error:"Sign in to change your profile picture."});
+    const avatar=String(req.body.avatarData||"");
+    if(avatar && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar) || avatar.length>1_300_000))
+      return res.status(400).json({error:"Choose a PNG, JPG, or WebP image smaller than 900 KB."});
+    await accountsReady;
+    if(pgPool) await pgPool.query("UPDATE nexus_accounts SET avatar_data=$1 WHERE id=$2",[avatar||null,account.id]);
+    else {
+      account.avatarData=avatar||null;
+      const data=await readLocalAccounts(), i=data.findIndex(x=>String(x.id)===String(account.id));
+      if(i<0)return res.status(404).json({error:"Account not found."});
+      data[i].avatarData=avatar||null;
+      await fs.promises.writeFile(ACCOUNT_FILE,JSON.stringify(data,null,2),{mode:0o600});
+    }
+    res.json({avatarData:avatar||null});
+  } catch(e){console.error("Avatar update failed",e);res.status(500).json({error:"Could not update your profile picture."});}
 });
 app.post("/api/auth/logout", (_req,res)=>{clearSessionCookie(res);res.json({ok:true});});
 
