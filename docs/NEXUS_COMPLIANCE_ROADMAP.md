@@ -91,6 +91,52 @@
 6. Complete accessibility and asset-license audits.
 7. Keep paid features and marketing email marked not applicable until actually introduced.
 
+
+
+## Phase 1 implementation update — branch `compliance/phase-0-hardening` (2026-11-07)
+
+These changes are committed to a review branch and are **not deployed to production**. Automated and live-environment tests have not yet run. A draft pull request is intended for review before merge.
+
+### Implemented in source on this branch
+- [x] Production startup now requires a stable `SESSION_SECRET` of at least 32 characters.
+- [x] PostgreSQL TLS certificate verification is enabled for non-local database connections.
+- [x] Production health check verifies database readiness and returns 503 when production persistence is missing or unavailable.
+- [x] Authentication rate limits use a PostgreSQL table when configured, so counts are shared across instances; local development retains in-memory limits.
+- [x] Cross-origin state-changing HTTP requests are rejected using Origin and Fetch Metadata checks.
+- [x] New account registration creates unverified accounts, generates a one-time token, stores only its SHA-256 hash, and sends a 24-hour verification link through Resend.
+- [x] Login rejects unverified production accounts; verification sets a verified timestamp.
+- [x] Legacy accounts created by the old path are marked unverified unless a verified timestamp exists; affected users must verify again.
+- [x] A privacy-preserving resend-verification endpoint and account-page form were added.
+- [x] Registration requires an explicit Terms acceptance and Privacy Policy acknowledgement; version/timestamp fields are stored.
+- [x] Registration UI no longer claims email verification is disabled.
+- [x] Static hosting blocks project metadata, dependency directories, and documentation paths.
+- [x] Shared styling and Pokémon game styling now provide visible keyboard focus; primary button text was changed to a high-contrast dark foreground; reduced-motion preferences are respected.
+- [x] Cookie/local-storage policy draft added and linked from site footers.
+- [x] Privacy draft expanded to disclose observed account/game data, local storage use, and the browser-side PokéAPI request.
+- [x] Age eligibility and operator-contact sections now explicitly identify unresolved decisions rather than inventing details.
+- [x] Added `docs/PRODUCTION_CONFIGURATION.md` and `docs/DATA_AND_ASSET_INVENTORY.md`.
+- [x] Added `npm test` syntax-check command and a GitHub Actions workflow for pull requests and pushes to main.
+
+### Still blocked or requiring verification
+- [ ] Run `npm test` and review the GitHub Actions result; this environment did not execute the repository's Node runtime.
+- [ ] Verify Render environment variables and deployment settings. Required values are listed in `docs/PRODUCTION_CONFIGURATION.md`; never put secret values in GitHub.
+- [ ] Verify PostgreSQL TLS connectivity and database persistence against the actual configured provider.
+- [ ] Test Resend delivery, sender-domain verification, expired tokens, resend behavior, and legacy-account re-verification in a staging environment.
+- [ ] Review the email-verification migration with care before production: it intentionally requires legacy accounts without a verified timestamp to verify again.
+- [ ] Review Origin checks with the exact production `PUBLIC_BASE_URL`; a wrong value can reject legitimate same-origin writes.
+- [ ] Complete password reset/change flow or document the recovery path before opening accounts to the public.
+- [ ] Add deletion retention details only after confirming provider backups/logs and processor deletion behavior.
+- [ ] Confirm live cookie/storage behavior and whether any provider sets additional cookies. No cookie banner was added because the reviewed source showed only essential session/resume storage; reassess if analytics or advertising is introduced.
+- [ ] Complete manual screen-reader, keyboard-only, zoom/reflow, and WCAG contrast testing across all pages and game flows.
+- [ ] Complete asset-by-asset license review, including Pokémon and other third-party character/franchise IP. The inventory records risks but does not grant rights.
+- [ ] Set the minimum permitted age and determine whether parental consent is required. Do not treat an age checkbox as a substitute for legally required parental consent.
+- [ ] Supply responsible operator legal identity and a dedicated privacy/support contact. Do not publish a personal home address without appropriate guidance.
+- [ ] Obtain qualified legal review of Privacy, Terms, Community, Cookie, and future Purchase/Refund policies before calling them final or relying on them.
+
+### Policy publication status
+
+**All policy pages remain drafts.** The Privacy and Cookie drafts have been expanded to match source-observed behavior, and the Terms/Community/Purchases sections remain preliminary. They are not final because the responsible operator, age eligibility, jurisdictions, provider/retention facts, and legal review are unresolved. No policy should be labelled finalized until those inputs are verified and counsel has reviewed the result.
+
 ## Phase 0 — Verify the current state first
 
 Complete this audit before implementing fixes. Record evidence (file path, setting, test result, or screenshot) and mark each item as **Implemented**, **Partially implemented**, **Missing**, or **Not applicable**. Do not infer completion from the presence of a link or UI control alone.
