@@ -20,9 +20,9 @@ const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 // Never expose private account storage or server/configuration files through static hosting.
 app.use((req, res, next) => {
-  const blockedFiles = new Set(["accounts.json", "server.js.js", "package.json", "render.yaml", "readme.md", ".gitignore"]);
+  const blockedFiles = new Set(["accounts.json", "server.js.js", "package.json", "package-lock.json", "render.yaml", "readme.md", ".gitignore"]);
   const requestedFile = path.posix.basename(req.path).toLowerCase();
-  if (blockedFiles.has(requestedFile) || /^\/(docs|scripts|\.github)(\/|$)/i.test(req.path)) return res.sendStatus(404);
+  if (blockedFiles.has(requestedFile) || /^\/(docs|scripts|\.github|node_modules|test|tests)(\/|$)/i.test(req.path) || /\.(env|log|md|ya?ml|toml|lock)$/i.test(req.path)) return res.sendStatus(404);
   next();
 });
 app.use(express.static(__dirname, { dotfiles: "deny" }));
