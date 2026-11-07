@@ -72,6 +72,10 @@ async function initAccounts() {
     await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS hide_online BOOLEAN NOT NULL DEFAULT FALSE");
     await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE");
     await pgPool.query("ALTER TABLE nexus_accounts ALTER COLUMN email_verified SET DEFAULT FALSE");
+    await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ");
+    // Older registration code marked addresses verified without sending a verification email.
+    // Require those legacy accounts to verify again rather than trusting the incorrect flag.
+    await pgPool.query("UPDATE nexus_accounts SET email_verified=FALSE WHERE email_verified_at IS NULL");
     await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS accepted_terms_version TEXT");
     await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ");
     await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS privacy_notice_version TEXT");
@@ -222,7 +226,7 @@ app.post("/api/auth/verify-email", async (req,res)=>{
     const result=await pgPool.query("SELECT account_id FROM nexus_email_verifications WHERE token_hash=$1 AND expires_at>NOW() LIMIT 1",[hash]);
     if(!result.rows[0])return res.status(400).json({error:"Verification link is invalid or expired. Create a new account if needed."});
     const accountId=result.rows[0].account_id;
-    await pgPool.query("UPDATE nexus_accounts SET email_verified=TRUE WHERE id=$1",[accountId]);
+    await pgPool.query("UPDATE nexus_accounts SET email_verified=TRUE,email_verified_at=NOW() WHERE id=$1",[accountId]);
     await pgPool.query("DELETE FROM nexus_email_verifications WHERE account_id=$1",[accountId]);
     res.json({ok:true,message:"Email verified. You can now sign in."});
   } catch(e){console.error("Email verification failed",e);res.status(500).json({error:"Could not verify your email right now."});}
