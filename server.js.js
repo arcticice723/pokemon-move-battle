@@ -234,7 +234,7 @@ app.post("/api/auth/login", loginRateLimit, async (req,res)=>{
     const login=String(req.body.login||"").trim(), password=String(req.body.password||"");
     if(!login||!password)return res.status(400).json({error:"Enter your username/email and password."});
     const a=await findAccountByLogin(login);if(!a)return res.status(401).json({error:"Incorrect username/email or password."});
-    if (!Boolean(a.email_verified)) return res.status(403).json({error:"Verify your email address before signing in. Check your inbox for the verification link."});
+    if (pgPool && !Boolean(a.email_verified)) return res.status(403).json({error:"Verify your email address before signing in. Check your inbox for the verification link."});
     const [salt,hash]=String(a.password_hash).split(":");if(!salt||!hash)return res.status(500).json({error:"Account credentials need to be reset."});
     const derived=await scrypt(password,salt,64), expected=Buffer.from(hash,"hex");
     if(expected.length!==derived.length||!crypto.timingSafeEqual(expected,derived))return res.status(401).json({error:"Incorrect username/email or password."});
