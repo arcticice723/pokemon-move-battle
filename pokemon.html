@@ -762,7 +762,7 @@
 
   </script>
 
-<footer class="footer"><div class="container footer-inner"><div>NEXUS <span class="footer-tagline">A small hub for big rivalries.</span></div><nav class="footer-links" aria-label="Legal and policies"><a href="/legal.html#privacy">Privacy Policy</a><a href="/legal.html#terms">Terms of Service</a><a href="/legal.html#community">Community Guidelines</a><a href="/legal.html#purchases">Purchases &amp; Refunds</a></nav></div></footer><script>
+<footer class="footer"><div class="container footer-inner"><div>NEXUS <span class="footer-tagline">A small hub for big rivalries.</span></div><nav class="footer-links" aria-label="Legal and policies"><a href="/legal.html#privacy">Privacy Policy</a><a href="/legal.html#terms">Terms of Service</a><a href="/legal.html#community">Community Guidelines</a><a href="/legal.html#purchases">Purchases &amp; Refunds</a><a href="/legal.html#cookies">Cookies</a></nav></div></footer><script>
 (async()=>{const link=document.getElementById('topProfileLink');if(!link)return;try{const r=await fetch('/api/auth/me',{credentials:'same-origin'});if(!r.ok)return;const data=await r.json();const a=data.account;if(!a)return;const img=document.getElementById('topProfileAvatar');const initial=document.getElementById('topProfileInitial');if(a.avatarData){img.src=a.avatarData;img.classList.remove('hidden');if(initial)initial.classList.add('hidden');}else if(initial){initial.textContent=(a.username||'N').slice(0,1).toUpperCase();}link.title='Account: '+a.username;link.setAttribute('aria-label','Account: '+a.username);}catch{}})();
 </script></body>
 
