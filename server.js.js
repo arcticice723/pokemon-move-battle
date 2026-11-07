@@ -26,7 +26,17 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.static(__dirname, { dotfiles: "deny" }));
-app.get("/health", (_req, res) => res.status(200).json({ status: "ok", app: "Nexus" }));
+app.get("/health", async (_req, res) => {
+  try {
+    await accountsReady;
+    if (process.env.NODE_ENV === "production" && !pgPool) return res.status(503).json({status:"degraded",app:"Nexus",database:"not_configured"});
+    if (pgPool) await pgPool.query("SELECT 1");
+    return res.status(200).json({status:"ok",app:"Nexus",database:pgPool?"connected":"not_configured"});
+  } catch (error) {
+    console.error("Health check failed:",error.message);
+    return res.status(503).json({status:"degraded",app:"Nexus",database:"unavailable"});
+  }
+});
 // Basic Nexus accounts. Set DATABASE_URL to a persistent PostgreSQL database in production.
 const ACCOUNT_FILE = path.join(__dirname, "accounts.json");
 if (process.env.NODE_ENV === "production" && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) throw new Error("SESSION_SECRET must be configured with at least 32 characters in production.");
@@ -83,6 +93,8 @@ async function initAccounts() {
     await pgPool.query("ALTER TABLE nexus_accounts ADD COLUMN IF NOT EXISTS privacy_notice_ack_at TIMESTAMPTZ");
     await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_email_verifications (account_id BIGINT PRIMARY KEY REFERENCES nexus_accounts(id) ON DELETE CASCADE, token_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
     await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_rate_limits (key_hash TEXT PRIMARY KEY, count INTEGER NOT NULL, reset_at TIMESTAMPTZ NOT NULL)");
+    await pgPool.query("DELETE FROM nexus_email_verifications WHERE expires_at <= NOW()");
+    await pgPool.query("DELETE FROM nexus_rate_limits WHERE reset_at < NOW() - INTERVAL '1 day'");
     await pgPool.query("CREATE TABLE IF NOT EXISTS nexus_friendships (id BIGSERIAL PRIMARY KEY, requester_id BIGINT NOT NULL REFERENCES nexus_accounts(id) ON DELETE CASCADE, addressee_id BIGINT NOT NULL REFERENCES nexus_accounts(id) ON DELETE CASCADE, status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted')), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (requester_id <> addressee_id), UNIQUE (requester_id, addressee_id))");
   }
 }
