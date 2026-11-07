@@ -4,6 +4,93 @@
 
 **Rule:** Verify the current implementation before changing it. A feature mentioned in planning or a previous conversation is not considered complete until it is found in the current code/configuration and tested in the deployed environment.
 
+
+
+## Phase 0 audit results — 2026-11-07
+
+**Audit scope:** Static review of the default `main` branch source files available in GitHub. This is a code/configuration review, not a live penetration test or a verification of Render environment variables, database contents, vendor dashboards, or browser behavior. Do not mark production controls complete until those checks are performed.
+
+### 0.1 Repository and deployment inventory — Partially verified
+- [x] Repository identified: `arcticice723/pokemon-move-battle`, default branch `main`.
+- [x] Runtime/config files found: `server.js.js`, `package.json`, `render.yaml`, `index.html`, `account.html`, `legal.html`, `styles.css`, `pokemon.html`, and `character-guess.html`.
+- [x] Runtime dependencies in `package.json`: Express, Socket.IO, and pg. The server also calls Resend's email API directly using built-in `fetch`.
+- [ ] Verify actual Render service, deployed commit, `DATABASE_URL`, `SESSION_SECRET`, `PUBLIC_BASE_URL`, `RESEND_API_KEY`, and `EMAIL_FROM` in the hosting dashboard. Values were not accessible from repository source.
+- [ ] Confirm whether any analytics, monitoring, CDN, image, or other providers are configured outside the checked dependency manifest.
+
+### 0.2 Existing legal pages — Found, explicitly draft only
+- [x] `index.html`, `account.html`, and game pages link to `/legal.html#privacy`, `#terms`, `#community`, and `#purchases`.
+- [x] `legal.html` exists and prominently says its sections are preliminary drafts and not final legal documents.
+- [ ] Draft privacy policy does not yet name the operator, contact channel, actual hosting/vendor list, retention periods, or full applicable user-rights process.
+- [ ] Terms still need operator identity, age requirements, governing law, support contact, finalized moderation/account-action process, and effective date.
+- [ ] No standalone cookie policy section was found.
+
+### 0.3 User data inventory — Partially mapped from source
+- [x] Account fields in the PostgreSQL schema include username, email, password hash, creation time, avatar data, online-visibility preference, and email-verification flag.
+- [x] Session cookie contains a signed account identifier and expiry; game state includes room codes, player names, moves, character assignments, questions/answers, and chat messages in server memory.
+- [x] Friend relationship records and presence state are implemented; profile images are stored as data URLs in the account record.
+- [ ] No complete data-flow/retention inventory exists yet for hosting logs, database backups, email provider, browser storage, and any external game-data API.
+
+### 0.4 Account lifecycle and security — Partially implemented; several launch blockers
+- [x] Account registration/login/logout endpoints, password hashing with Node crypto scrypt, signed HttpOnly session cookie, account deletion endpoint with password confirmation, and account deletion UI are present.
+- [x] Account deletion removes the account row; the friendship schema uses cascading foreign keys. Connected sockets for that account are disconnected.
+- [x] Authentication rate limits exist for login, registration, deletion, and friend requests.
+- [ ] **Critical verification/fix:** registration currently inserts accounts with `email_verified=TRUE` and returns `verificationRequired:false`; the account page explicitly says email verification is temporarily disabled. Verification-email code and a verification endpoint exist, but the registration path does not issue a token or send the email. Do not describe email verification as active.
+- [ ] **Critical configuration check:** production login/registration are disabled without PostgreSQL, but the actual Render `DATABASE_URL` and persistence configuration are unverified.
+- [ ] **Security hardening:** `SESSION_SECRET` falls back to a random process-start value; production logs a warning if it is missing. Confirm a stable secret is configured in production.
+- [ ] Rate-limit buckets are process-local memory, so limits reset on restart and are not shared across multiple instances. Review a persistent/shared limiter before launch.
+- [ ] Review CSRF protections and all state-changing HTTP endpoints; the session cookie uses `SameSite=Lax`, but no explicit CSRF token mechanism was found in the inspected routes.
+- [ ] No password-reset/change workflow was found in the inspected account UI/routes. Decide whether this is needed for launch and implement a secure recovery process.
+- [ ] Verify account deletion against database backups, hosting logs, and all processors. The UI acknowledges backups may retain limited copies but gives no retention duration.
+- [ ] PostgreSQL connection configuration sets `rejectUnauthorized:false` for non-local DATABASE_URL connections. Review and replace with certificate verification where supported before production use.
+
+### 0.5 Cookies and browser storage — Partial source evidence
+- [x] A first-party `nexus_session` cookie is set with `HttpOnly`, `SameSite=Lax`, `Path=/`, a seven-day max age, and `Secure` in production.
+- [x] Game pages use browser `localStorage` to save temporary room-resume tokens/session details.
+- [ ] No cookie banner, consent manager, analytics tag, or cookie inventory was identified in the reviewed HTML/CSS and package manifest.
+- [ ] Verify actual browser requests/cookies in production and determine legal consent requirements. A banner should only be added if the actual technologies and applicable law call for it.
+
+### 0.6 Third-party SDKs and assets — Partially inventoried
+- [x] Declared npm dependencies are limited to Express, Socket.IO, and pg. Resend is called via HTTP API, not an installed SDK.
+- [ ] Server code calls Resend for verification email, but current registration flow does not invoke the sender. Verify provider configuration and data transfer if email is enabled.
+- [ ] Inspect full transitive dependency tree, external API calls (including game-data sources), hosting/CDN services, fonts, and every image/audio/icon asset. No asset-license register was found in the reviewed files.
+
+### 0.7 Forms and email — Needs work
+- [x] Registration form collects username, email, and password; account page has profile/friend/privacy/delete controls.
+- [ ] No privacy notice or separate optional marketing consent was visible beside registration in the inspected account page.
+- [ ] No newsletter/marketing signup or unsubscribe flow was found in the inspected files. Mark unsubscribe **Not applicable yet** unless marketing email is introduced.
+- [ ] Verification-email implementation is incomplete as described in 0.4. No password-reset email flow was found.
+
+### 0.8 Payments — Not applicable yet (source evidence)
+- [x] No payment processor or checkout dependency was present in the declared dependencies, and `legal.html` says cosmetics and membership are future features and purchases should remain disabled until ready.
+- [ ] Verify no live payment links, external checkout, or provider configuration exists outside the checked source files. Keep sales disabled until purchase disclosures, cancellation, refunds, and support are ready.
+
+### 0.9 Age and audience — Not implemented/decision required
+- [x] Community guidelines describe a general-audience experience.
+- [ ] No minimum-age statement, age gate, parental consent workflow, or age-specific privacy controls were found in the inspected account/legal pages.
+- [ ] Decide the intended minimum age and permitted audience before public launch. Obtain qualified legal review of applicable children's/youth privacy requirements before permitting children to use the service.
+
+### 0.10 Accessibility — Partial source evidence; manual testing outstanding
+- [x] HTML pages declare a document language and viewport. Several controls have explicit labels/ARIA names; status/chat regions use live/status semantics; navigation landmarks are present.
+- [ ] The account form does not show a privacy notice; labels and keyboard flows need a full pass across all games.
+- [ ] `styles.css` removes the default input outline and changes border color on focus; a consistent, high-visibility focus indicator for all interactive controls was not verified.
+- [ ] No contrast measurements, screen-reader results, zoom/reflow results, or keyboard-only test evidence exists in the repository.
+- [ ] Review the Pokémon page's embedded CSS/HTML separately; it does not use the shared stylesheet for its main layout.
+
+### 0.11 Claims, reviews, and communications — Partial
+- [x] No reviews/testimonials or public user-rating system were found on the inspected home page.
+- [x] Home page describes two games; the README also lists two games.
+- [ ] Verify every public feature claim against current production behavior, including room capacity, refresh/rejoin behavior, account persistence, and friend presence.
+- [ ] No marketing email program was identified; unsubscribe remains **Not applicable yet** unless one is added.
+
+### Immediate findings to address after the audit
+1. Confirm production Render/database/session-secret settings and deployed commit.
+2. Resolve the email-verification mismatch: either implement verification end-to-end or remove misleading verification-related code/copy and accurately disclose the account flow. Do not claim verified email today.
+3. Complete the data-flow and retention inventory, including backups, logs, Resend, and game-data APIs.
+4. Add an appropriate privacy notice to account registration and decide age eligibility/handling before launch.
+5. Review session/CSRF/rate-limit/database TLS hardening.
+6. Complete accessibility and asset-license audits.
+7. Keep paid features and marketing email marked not applicable until actually introduced.
+
 ## Phase 0 — Verify the current state first
 
 Complete this audit before implementing fixes. Record evidence (file path, setting, test result, or screenshot) and mark each item as **Implemented**, **Partially implemented**, **Missing**, or **Not applicable**. Do not infer completion from the presence of a link or UI control alone.
