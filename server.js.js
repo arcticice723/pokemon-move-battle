@@ -64,6 +64,7 @@ const loginRateLimit = authRateLimit({ limit: 12, windowMs: 15 * 60 * 1000 });
 const registerRateLimit = authRateLimit({ limit: 8, windowMs: 60 * 60 * 1000 });
 const deleteRateLimit = authRateLimit({ limit: 5, windowMs: 15 * 60 * 1000 });
 const friendRequestRateLimit = authRateLimit({ limit: 20, windowMs: 60 * 60 * 1000 });
+const resendVerificationRateLimit = authRateLimit({ limit: 3, windowMs: 60 * 60 * 1000 });
 let accountFileQueue = Promise.resolve();
 async function initAccounts() {
   if (pgPool) {
@@ -231,6 +232,27 @@ app.post("/api/auth/verify-email", async (req,res)=>{
     res.json({ok:true,message:"Email verified. You can now sign in."});
   } catch(e){console.error("Email verification failed",e);res.status(500).json({error:"Could not verify your email right now."});}
 });
+app.post("/api/auth/resend-verification", resendVerificationRateLimit, async (req,res) => {
+  const genericMessage = "If that address belongs to an unverified Nexus account, a new verification email will be sent.";
+  try {
+    const email = String(req.body.email || "").trim().toLowerCase();
+    if (!email || email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return res.status(200).json({ok:true,message:genericMessage});
+    if (!pgPool) return res.status(200).json({ok:true,message:genericMessage});
+    await accountsReady;
+    const found = await pgPool.query("SELECT id,email,email_verified FROM nexus_accounts WHERE LOWER(email)=LOWER($1) LIMIT 1",[email]);
+    const account = found.rows[0];
+    if (!account || account.email_verified) return res.status(200).json({ok:true,message:genericMessage});
+    const token = crypto.randomBytes(32).toString("base64url");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    await pgPool.query("INSERT INTO nexus_email_verifications (account_id,token_hash,expires_at) VALUES ($1,$2,NOW()+INTERVAL '24 hours') ON CONFLICT (account_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at,created_at=NOW()",[account.id,tokenHash]);
+    await sendVerificationEmail({to:account.email,verifyUrl:publicBaseUrl(req)+"/account?verify="+encodeURIComponent(token)});
+    return res.status(200).json({ok:true,message:genericMessage});
+  } catch (error) {
+    console.error("Verification resend failed:",error.message);
+    return res.status(200).json({ok:true,message:genericMessage});
+  }
+});
+
 app.post("/api/auth/login", loginRateLimit, async (req,res)=>{
   try {
     if (process.env.NODE_ENV === "production" && !pgPool)
